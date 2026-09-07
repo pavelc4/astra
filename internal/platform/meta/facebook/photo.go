@@ -28,11 +28,26 @@ var (
 	// og:type is "video.*" for reels and single-video posts — the signal that a
 	// non-album permalink is a video, not a photo set.
 	ogTypeRe = regexp.MustCompile(`<meta[^>]*(?:property|content)="og:type"[^>]*content="([^"]+)"|<meta[^>]*content="([^"]+)"[^>]*(?:property|content)="og:type"`)
+
+	// Single photo attachment in authenticated Comet HTML.
+	// viewer_image has full dimensions (WxH); photo_image has the direct fbcdn URL.
+	singlePhotoDimsRe = regexp.MustCompile(`"viewer_image":\{"height":(\d+),"width":(\d+)`)
+	singlePhotoURLRe  = regexp.MustCompile(`"photo_image":\{"uri":"(https:\\?/\\?/scontent[^"]+?)"`)
 )
 
 // isVideoPage reports whether a crawled permalink is a video post (og:type
 // video.*). Routes single videos to MP4 extraction instead of the photo scraper.
+// Ignores group pages because Facebook sets og:type="video.other" indiscriminately
+// on group pages even for photo and text posts.
 func isVideoPage(htmlStr string) bool {
+	if strings.Contains(htmlStr, `content="Grup Facebook"`) ||
+		strings.Contains(htmlStr, `content="Facebook Groups"`) ||
+		strings.Contains(htmlStr, `"application-name" content="Grup Facebook"`) ||
+		strings.Contains(htmlStr, `"application-name" content="Facebook Groups"`) ||
+		strings.Contains(htmlStr, `property="og:url" content="https://www.facebook.com/groups/`) ||
+		strings.Contains(htmlStr, `property="og:url" content="https://web.facebook.com/groups/`) {
+		return false
+	}
 	m := ogTypeRe.FindStringSubmatch(htmlStr)
 	if len(m) < 3 {
 		return false
@@ -42,6 +57,27 @@ func isVideoPage(htmlStr string) bool {
 		val = m[2]
 	}
 	return strings.HasPrefix(val, "video")
+}
+
+func extractSinglePhoto(htmlStr string) *MediaItem {
+	loc := strings.Index(htmlStr, "StoryAttachmentPhotoStyleRenderer")
+	if loc == -1 {
+		return nil
+	}
+	end := loc + 2000
+	if end > len(htmlStr) {
+		end = len(htmlStr)
+	}
+	chunk := htmlStr[loc:end]
+
+	var quality string
+	if m := singlePhotoDimsRe.FindStringSubmatch(chunk); len(m) > 2 {
+		quality = m[2] + "x" + m[1]
+	}
+	if m := singlePhotoURLRe.FindStringSubmatch(chunk); len(m) > 1 {
+		return &MediaItem{URL: cleanJSURL(m[1]), Quality: quality}
+	}
+	return nil
 }
 
 // extractAlbumMedia parses the multi-item carousel FB embeds in the
@@ -187,13 +223,22 @@ func fetchPhotosViaCrawler(ctx context.Context, targetURL, ck string, wantVideo 
 		} else if videos[0].Thumbnail != nil {
 			info.Thumbnail = videos[0].Thumbnail
 		}
-		// Authenticated album pages carry no og:title — fall back to <title>.
 		if info.Caption == "" {
-			if t := regexp.MustCompile(`<title[^>]*>([^<]+)</title>`).FindStringSubmatch(htmlStr); len(t) > 1 {
-				info.Caption = html.UnescapeString(strings.TrimSpace(t[1]))
-			}
+			info.Caption = extractVideoCaption(htmlStr)
 		}
 		return info, nil
+	}
+
+	// Single photo from authenticated Comet SSR:
+	if !wantVideo && !isVideoPage(htmlStr) {
+		if item := extractSinglePhoto(htmlStr); item != nil {
+			info.Photos = []MediaItem{*item}
+			info.Thumbnail = &item.URL
+			if info.Caption == "" {
+				info.Caption = extractVideoCaption(htmlStr)
+			}
+			return info, nil
+		}
 	}
 
 	// Single video posts (a /share/v/ that resolves to a group permalink, a lone
@@ -205,25 +250,30 @@ func fetchPhotosViaCrawler(ctx context.Context, targetURL, ck string, wantVideo 
 	// og:type=video on the lighter public page. NOT on progressive presence
 	// alone: the authenticated Comet page carries progressive_urls for a dozen
 	// suggested videos too, so an ungated grab would hijack real photo posts.
-	//
-	// ponytail: takes the first progressive/browser_native video = the primary
-	// post's, which the creation story renders before suggestions. If a suggested
-	// video ever sorts first, scope this to the primary story_attachment node.
 	if wantVideo || isVideoPage(htmlStr) {
 		vids := extractProgressiveVideos(htmlStr)
 		if len(vids) == 0 {
 			vids = extractBrowserNativeVideos(htmlStr)
 		}
 		if len(vids) > 0 {
-			if th := regexp.MustCompile(`"preferred_thumbnail":\{"image":\{"uri":"([^"]+)"`).FindStringSubmatch(htmlStr); len(th) > 1 {
-				thumb := cleanJSURL(th[1])
-				info.Thumbnail = &thumb
-				for i := range vids {
-					vids[i].Thumbnail = &thumb
+			thRe := regexp.MustCompile(`"preferred_thumbnail":\{"image":\{"uri":"([^"]+)"`)
+			if thMatches := thRe.FindAllStringSubmatchIndex(htmlStr, -1); len(thMatches) > 0 {
+				for _, th := range thMatches {
+					if len(th) >= 4 && !isAdContext(htmlStr, th[2]) {
+						thumb := cleanJSURL(htmlStr[th[2]:th[3]])
+						info.Thumbnail = &thumb
+						for i := range vids {
+							vids[i].Thumbnail = &thumb
+						}
+						break
+					}
 				}
 			}
 			info.Videos = vids
 			info.Photos = nil
+			if info.Caption == "" {
+				info.Caption = extractVideoCaption(htmlStr)
+			}
 			return info, nil
 		}
 	}
@@ -276,6 +326,9 @@ func fetchPhotosViaCrawler(ctx context.Context, targetURL, ck string, wantVideo 
 
 	if len(info.Photos) > 0 {
 		info.Thumbnail = &info.Photos[0].URL
+	}
+	if info.Caption == "" {
+		info.Caption = extractVideoCaption(htmlStr)
 	}
 
 	return info, nil

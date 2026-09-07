@@ -150,6 +150,24 @@ func extractVideoCaption(htmlStr string) string {
 	return ""
 }
 
+// isAdContext reports whether the substring around matchStart appears to be
+// part of a sponsored/ad placement in Facebook Comet HTML.
+func isAdContext(htmlStr string, matchStart int) bool {
+	start := matchStart - 2000
+	if start < 0 {
+		start = 0
+	}
+	end := matchStart + 1000
+	if end > len(htmlStr) {
+		end = len(htmlStr)
+	}
+	window := htmlStr[start:end]
+	return strings.Contains(window, "VIDEO_DR_STYLE") ||
+		strings.Contains(window, "StoryAttachmentLinkOpenCallToActionRenderer") ||
+		strings.Contains(window, `"link_style":"VIDEO_DR_STYLE"`) ||
+		strings.Contains(window, `"is_sponsored":true`)
+}
+
 // extractProgressiveVideos pulls the direct-download MP4 URLs FB server-renders
 // into the watch page (progressive_urls with HD/SD quality labels). Returns nil
 // if none present — callers fall back to the legacy embed/GraphQL paths.
@@ -159,15 +177,24 @@ func extractVideoCaption(htmlStr string) string {
 // payload are the reliable source. If FB drops them, the fallback is parsing the
 // DASH base_url representations.
 func extractProgressiveVideos(htmlStr string) []MediaItem {
-	matches := progressiveURLRe.FindAllStringSubmatch(htmlStr, -1)
+	matches := progressiveURLRe.FindAllStringSubmatchIndex(htmlStr, -1)
 	if matches == nil {
 		return nil
 	}
 	seen := make(map[string]bool)
 	var hd, sd []MediaItem
 	for _, m := range matches {
-		clean := cleanJSURL(m[1])
-		q := strings.ToLower(m[2])
+		if len(m) < 6 {
+			continue
+		}
+		urlStart, urlEnd := m[2], m[3]
+		qStart, qEnd := m[4], m[5]
+		if isAdContext(htmlStr, urlStart) {
+			continue
+		}
+		rawURL := htmlStr[urlStart:urlEnd]
+		clean := cleanJSURL(rawURL)
+		q := strings.ToLower(htmlStr[qStart:qEnd])
 		if seen[q] {
 			continue
 		}
@@ -187,20 +214,24 @@ func extractProgressiveVideos(htmlStr string) []MediaItem {
 // browser_native_hd_url / browser_native_sd_url. This is the fallback when a
 // video ships no progressive_urls (DASH-only delivery) — the case that made
 // reels fail intermittently and group videos fall back to a poster image.
-// Takes the FIRST of each: the primary video's creation story precedes any
-// suggested videos in the SSR.
-//
-// ponytail: first-match = primary video, same heuristic extractVideoCaption
-// uses. A video that ships ONLY dash_manifest base_url (no browser_native)
-// still yields nothing here; parse the DASH representations if such videos
-// show up.
+// Takes the FIRST non-ad match of each.
 func extractBrowserNativeVideos(htmlStr string) []MediaItem {
 	var out []MediaItem
-	if m := browserNativeHDRe.FindStringSubmatch(htmlStr); len(m) > 1 {
-		out = append(out, MediaItem{Quality: "hd", URL: cleanJSURL(m[1])})
+	if hdMatches := browserNativeHDRe.FindAllStringSubmatchIndex(htmlStr, -1); len(hdMatches) > 0 {
+		for _, m := range hdMatches {
+			if len(m) >= 4 && !isAdContext(htmlStr, m[2]) {
+				out = append(out, MediaItem{Quality: "hd", URL: cleanJSURL(htmlStr[m[2]:m[3]])})
+				break
+			}
+		}
 	}
-	if m := browserNativeSDRe.FindStringSubmatch(htmlStr); len(m) > 1 {
-		out = append(out, MediaItem{Quality: "sd", URL: cleanJSURL(m[1])})
+	if sdMatches := browserNativeSDRe.FindAllStringSubmatchIndex(htmlStr, -1); len(sdMatches) > 0 {
+		for _, m := range sdMatches {
+			if len(m) >= 4 && !isAdContext(htmlStr, m[2]) {
+				out = append(out, MediaItem{Quality: "sd", URL: cleanJSURL(htmlStr[m[2]:m[3]])})
+				break
+			}
+		}
 	}
 	return out
 }

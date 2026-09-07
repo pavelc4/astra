@@ -100,3 +100,17 @@ func TestExtractAlbumMedia_NoAlbum(t *testing.T) {
 		t.Errorf("want nil,nil for non-album page, got photos=%v videos=%v", p, v)
 	}
 }
+
+func TestExtractSinglePhoto(t *testing.T) {
+	singlePhotoHTML := `"StoryAttachmentPhotoStyleRenderer","viewer_image":{"height":2048,"width":1483},"photo_image":{"uri":"https:\/\/scontent.test\/single.jpg?x=1"}`
+	item := extractSinglePhoto(singlePhotoHTML)
+	if item == nil {
+		t.Fatal("expected single photo item, got nil")
+	}
+	if item.URL != "https://scontent.test/single.jpg?x=1" {
+		t.Errorf("got URL %q, want https://scontent.test/single.jpg?x=1", item.URL)
+	}
+	if item.Quality != "1483x2048" {
+		t.Errorf("got Quality %q, want 1483x2048", item.Quality)
+	}
+}

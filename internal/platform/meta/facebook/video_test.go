@@ -78,6 +78,29 @@ func TestIsVideoPage(t *testing.T) {
 	if isVideoPage(`<html>no og:type</html>`) {
 		t.Error("missing og:type should not be a video page")
 	}
+	// Facebook group pages render og:type="video.other" for all posts; must not be treated as video pages.
+	if isVideoPage(`<meta property="og:type" content="video.other" /><meta name="application-name" content="Grup Facebook" />`) {
+		t.Error("group page with video.other should not be a video page")
+	}
+	if isVideoPage(`<meta property="og:type" content="video.other" /><meta property="og:url" content="https://www.facebook.com/groups/test/posts/123/" />`) {
+		t.Error("group url with video.other should not be a video page")
+	}
+}
+
+func TestExtractProgressiveVideos_SkipAds(t *testing.T) {
+	// A page containing an ad video followed by a legitimate progressive video in a separate story.
+	adPage := `"StoryAttachmentLinkOpenCallToActionRenderer","link_style":"VIDEO_DR_STYLE"` +
+		`,"progressive_urls":[{"progressive_url":"https:\/\/scontent.test\/ad.mp4","metadata":{"quality":"HD"}}]` +
+		strings.Repeat(" ", 3000) +
+		`"other_story":{"progressive_urls":[{"progressive_url":"https:\/\/scontent.test\/real.mp4","metadata":{"quality":"HD"}}]}`
+
+	vids := extractProgressiveVideos(adPage)
+	if len(vids) != 1 {
+		t.Fatalf("got %d videos, want 1 (ad skipped)", len(vids))
+	}
+	if vids[0].URL != "https://scontent.test/real.mp4" {
+		t.Errorf("got %q, want https://scontent.test/real.mp4", vids[0].URL)
+	}
 }
 
 func TestExtractVideoCaption(t *testing.T) {
