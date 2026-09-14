@@ -9,7 +9,7 @@ require (
 	github.com/go-chi/chi/v5 v5.3.0
 	github.com/lmittmann/tint v1.2.0
 	github.com/mattn/go-sqlite3 v1.14.47
-	golang.org/x/sync v0.22.0
+	golang.org/x/sync v0.23.0
 )
 
 require (
