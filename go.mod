@@ -8,7 +8,7 @@ require (
 	github.com/chromedp/chromedp v0.16.0
 	github.com/go-chi/chi/v5 v5.3.0
 	github.com/lmittmann/tint v1.2.0
-	github.com/mattn/go-sqlite3 v1.14.47
+	github.com/mattn/go-sqlite3 v1.14.52
 	golang.org/x/sync v0.22.0
 )
 
