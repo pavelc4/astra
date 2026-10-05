@@ -1,6 +1,11 @@
 package instagram
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
+
+
 
 type MediaItem struct {
 	Quality   string  `json:"quality"`
@@ -68,29 +73,13 @@ func ExtractUsername(rawURL string) string {
 	return ""
 }
 
+var igPathRe = regexp.MustCompile(`/(?:p|reel|reels|tv|share/(?:p|reel|reels))/([A-Za-z0-9_-]+)`)
+
 func extractShortcode(rawURL string) string {
 	rawURL = strings.TrimSpace(rawURL)
-
-	if idx := strings.LastIndex(rawURL, "/p/"); idx != -1 {
-		s := rawURL[idx+3:]
-		if e := strings.Index(s, "/"); e != -1 {
-			s = s[:e]
-		}
-		if e := strings.Index(s, "?"); e != -1 {
-			s = s[:e]
-		}
-		return s
+	if m := igPathRe.FindStringSubmatch(rawURL); len(m) > 1 {
+		return m[1]
 	}
-	if idx := strings.LastIndex(rawURL, "/reel/"); idx != -1 {
-		s := rawURL[idx+6:]
-		if e := strings.Index(s, "/"); e != -1 {
-			s = s[:e]
-		}
-		if e := strings.Index(s, "?"); e != -1 {
-			s = s[:e]
-		}
-		return s
-	}
-
 	return ""
 }
+
