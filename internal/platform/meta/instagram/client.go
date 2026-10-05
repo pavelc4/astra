@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"strings"
 	"time"
@@ -106,9 +107,32 @@ func (c *IGClient) HasCookies() bool {
 	return c.cookies != "" && strings.Contains(c.cookies, "sessionid")
 }
 
-// extractMediaID parses the media ID from an Instagram page's meta tags
-// (<meta property="al:ios:url" content="instagram://media?id=XXX">).
+// shortcodeToMediaID mathematically converts an Instagram base64 URL-safe shortcode
+// into the corresponding numeric media ID without requiring any HTTP page request.
+func shortcodeToMediaID(shortcode string) (string, error) {
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+	id := new(big.Int)
+	base := big.NewInt(64)
+	for _, ch := range shortcode {
+		idx := strings.IndexRune(alphabet, ch)
+		if idx == -1 {
+			return "", fmt.Errorf("invalid shortcode character: %c", ch)
+		}
+		id.Mul(id, base)
+		id.Add(id, big.NewInt(int64(idx)))
+	}
+	if id.Sign() <= 0 {
+		return "", fmt.Errorf("invalid calculated media ID")
+	}
+	return id.String(), nil
+}
+
+// extractMediaID resolves the media ID directly from shortcode or from an Instagram page's meta tags.
 func extractMediaID(ctx context.Context, shortcode string) (string, error) {
+	if id, err := shortcodeToMediaID(shortcode); err == nil && id != "" {
+		return id, nil
+	}
+
 	pageURL := fmt.Sprintf("%s/p/%s/", baseURL, shortcode)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)

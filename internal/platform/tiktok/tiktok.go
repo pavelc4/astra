@@ -59,6 +59,12 @@ func FetchData(ctx context.Context, videoURL string) (*Result, error) {
 
 	var downloads []types.DownloadItem
 
+	if post.Play != "" {
+		downloads = append(downloads, types.DownloadItem{Label: "No Watermark", URL: post.Play, Type: types.MediaVideo})
+	}
+	if post.Hdplay != "" {
+		downloads = append(downloads, types.DownloadItem{Label: "HD", URL: post.Hdplay, Type: types.MediaVideo})
+	}
 	if post.Original != "" {
 		label := "Original"
 		if post.OriginalSize > 0 {
@@ -66,15 +72,10 @@ func FetchData(ctx context.Context, videoURL string) (*Result, error) {
 		}
 		downloads = append(downloads, types.DownloadItem{Label: label, URL: post.Original, Type: types.MediaVideo})
 	}
-	if post.Hdplay != "" {
-		downloads = append(downloads, types.DownloadItem{Label: "HD", URL: post.Hdplay, Type: types.MediaVideo})
-	}
-	if post.Play != "" {
-		downloads = append(downloads, types.DownloadItem{Label: "No Watermark", URL: post.Play, Type: types.MediaVideo})
-	}
 	if post.Wmplay != "" {
 		downloads = append(downloads, types.DownloadItem{Label: "With Watermark", URL: post.Wmplay, Type: types.MediaVideo})
 	}
+
 	if post.Music != "" {
 		downloads = append(downloads, types.DownloadItem{Label: "Audio", URL: post.Music, Type: types.MediaAudio})
 	}
