@@ -95,15 +95,15 @@ func (f *firefoxExtractor) resolveCookiesDB() (string, error) {
 	home := u.HomeDir
 
 	globs := []string{
-		// ~/.config/zen/ — actual location on many Linux distros
+		// Standard Firefox (default)
+		filepath.Join(home, ".config", "mozilla", "firefox", "*", "cookies.sqlite"),
+		filepath.Join(home, ".mozilla", "firefox", "*", "cookies.sqlite"),
+
+		// ~/.config/zen/ — Zen Browser
 		filepath.Join(home, ".config", "zen", "*", "cookies.sqlite"),
 
 		// ~/.zen/ — old location / portable install
 		filepath.Join(home, ".zen", "*", "cookies.sqlite"),
-
-		// Standard Firefox
-		filepath.Join(home, ".config", "mozilla", "firefox", "*", "cookies.sqlite"),
-		filepath.Join(home, ".mozilla", "firefox", "*", "cookies.sqlite"),
 
 		// LibreWolf
 		filepath.Join(home, ".librewolf", "*", "cookies.sqlite"),
