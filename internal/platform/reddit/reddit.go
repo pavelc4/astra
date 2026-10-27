@@ -66,26 +66,9 @@ func FetchData(ctx context.Context, targetURL string) (*media.Media, error) {
 			return
 		}
 
-		// Parse the video_url from the href query string (if present)
-		u, err := url.Parse(href)
-		videoURL := ""
-		if err == nil {
-			videoURL = u.Query().Get("video_url")
-		}
-		if videoURL == "" {
-			m := VRedditRegex.FindString(href)
-			if m != "" {
-				videoURL = m
-			}
-		}
-
-		if videoURL != "" {
-			quality := "hd"
-			if strings.Contains(strings.ToLower(videoURL), "cmaf_720") || strings.Contains(strings.ToLower(videoURL), "720") {
-				quality = "720p"
-			} else if strings.Contains(strings.ToLower(videoURL), "1080") {
-				quality = "1080p"
-			}
+		switch {
+		case extractVideoURL(href) != "":
+			quality := parseQuality(extractVideoURL(href))
 			downloads = append(downloads, media.Item{
 				Label:   "Video " + quality,
 				URL:     href,
@@ -93,28 +76,27 @@ func FetchData(ctx context.Context, targetURL string) (*media.Media, error) {
 				Quality: quality,
 			})
 			if thumbnail == "" {
-				thumbMatch := doc.Find("img.img-fluid").First()
-				if src, ok := thumbMatch.Attr("src"); ok && src != "" {
+				if src, ok := doc.Find("img.img-fluid").First().Attr("src"); ok && src != "" {
 					thumbnail = src
 				}
 			}
-		} else if ImgReddRegex.MatchString(href) {
+
+		case ImgReddRegex.MatchString(href):
 			if thumbnail == "" {
 				thumbnail = href
 			}
-			ext := "image"
-			mediaType := media.Image
+			ext, mType := "image", media.Image
 			if strings.HasSuffix(href, ".gif") {
-				ext = "gif"
-				mediaType = media.Video
+				ext, mType = "gif", media.Video
 			}
 			downloads = append(downloads, media.Item{
 				Label:   "Image " + ext,
 				URL:     href,
-				Type:    mediaType,
+				Type:    mType,
 				Quality: "original",
 			})
-		} else if strings.Contains(href, "reddit.com/gallery/") {
+
+		case strings.Contains(href, "reddit.com/gallery/"):
 			downloads = append(downloads, media.Item{
 				Label:   "Gallery Link",
 				URL:     href,
@@ -129,4 +111,25 @@ func FetchData(ctx context.Context, targetURL string) (*media.Media, error) {
 	}
 
 	return media.Downloads("reddit", title, thumbnail, downloads), nil
+}
+
+func parseQuality(videoURL string) string {
+	lower := strings.ToLower(videoURL)
+	switch {
+	case strings.Contains(lower, "1080"):
+		return "1080p"
+	case strings.Contains(lower, "720"):
+		return "720p"
+	default:
+		return "hd"
+	}
+}
+
+func extractVideoURL(href string) string {
+	if u, err := url.Parse(href); err == nil {
+		if v := u.Query().Get("video_url"); v != "" {
+			return v
+		}
+	}
+	return VRedditRegex.FindString(href)
 }

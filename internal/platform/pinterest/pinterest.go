@@ -98,27 +98,8 @@ func FetchData(ctx context.Context, targetURL string) (*media.Media, error) {
 	}
 
 	// 3. Extract title, description, and thumbnail
-	title := ""
-	if t, ok := data["title"].(string); ok && t != "" {
-		title = t
-	} else if gt, ok := data["grid_title"].(string); ok && gt != "" {
-		title = gt
-	} else if desc, ok := data["description"].(string); ok && desc != "" {
-		title = desc
-	}
-
-	thumbnail := ""
-	if images, ok := data["images"].(map[string]interface{}); ok {
-		if orig, ok := images["orig"].(map[string]interface{}); ok {
-			if u, ok := orig["url"].(string); ok {
-				thumbnail = u
-			}
-		} else if size736, ok := images["736x"].(map[string]interface{}); ok {
-			if u, ok := size736["url"].(string); ok {
-				thumbnail = u
-			}
-		}
-	}
+	title := firstString(data, "title", "grid_title", "description")
+	thumbnail := extractImageURL(data["images"], "orig", "736x")
 
 	var downloads []media.Item
 
@@ -147,7 +128,7 @@ func FetchData(ctx context.Context, targetURL string) (*media.Media, error) {
 		var entries []entry
 		seen := map[string]bool{}
 		for _, m := range matches {
-			res := m[1] // e.g. "720x1280"
+			res := m[1]    // e.g. "720x1280"
 			suffix := m[3] // e.g. "720w"
 			if seen[suffix] {
 				continue
@@ -237,28 +218,9 @@ func FetchData(ctx context.Context, targetURL string) (*media.Media, error) {
 
 	// 5. Look for video inside story_pin_data if not found at root level
 	if !videoFound {
-		if story, ok := data["story_pin_data"].(map[string]interface{}); ok {
-			if pages, ok := story["pages"].([]interface{}); ok {
-				for _, page := range pages {
-					if pMap, ok := page.(map[string]interface{}); ok {
-						if blocks, ok := pMap["blocks"].([]interface{}); ok {
-							for _, block := range blocks {
-								if bMap, ok := block.(map[string]interface{}); ok {
-									if videoObj, ok := bMap["video"].(map[string]interface{}); ok {
-										if videoList, ok := videoObj["video_list"].(map[string]interface{}); ok {
-											items := extractVideoDownloads(videoList)
-											if len(items) > 0 {
-												downloads = append(downloads, items...)
-												videoFound = true
-											}
-										}
-									}
-								}
-							}
-						}
-					}
-				}
-			}
+		if items := extractStoryPinVideos(data, extractVideoDownloads); len(items) > 0 {
+			downloads = append(downloads, items...)
+			videoFound = true
 		}
 	}
 
@@ -273,4 +235,47 @@ func FetchData(ctx context.Context, targetURL string) (*media.Media, error) {
 	}
 
 	return media.Downloads("pinterest", title, thumbnail, downloads), nil
+}
+
+func firstString(m map[string]interface{}, keys ...string) string {
+	for _, k := range keys {
+		if v, ok := m[k].(string); ok && v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func extractImageURL(images any, preferredSizes ...string) string {
+	imgMap, ok := images.(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	for _, size := range preferredSizes {
+		if node, ok := imgMap[size].(map[string]interface{}); ok {
+			if u, ok := node["url"].(string); ok && u != "" {
+				return u
+			}
+		}
+	}
+	return ""
+}
+
+func extractStoryPinVideos(data map[string]interface{}, extractFn func(map[string]interface{}) []media.Item) []media.Item {
+	story, _ := data["story_pin_data"].(map[string]interface{})
+	pages, _ := story["pages"].([]interface{})
+	for _, page := range pages {
+		pMap, _ := page.(map[string]interface{})
+		blocks, _ := pMap["blocks"].([]interface{})
+		for _, block := range blocks {
+			bMap, _ := block.(map[string]interface{})
+			videoObj, _ := bMap["video"].(map[string]interface{})
+			if videoList, ok := videoObj["video_list"].(map[string]interface{}); ok {
+				if items := extractFn(videoList); len(items) > 0 {
+					return items
+				}
+			}
+		}
+	}
+	return nil
 }

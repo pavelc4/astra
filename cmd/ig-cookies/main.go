@@ -9,83 +9,75 @@ import (
 	"github.com/pavelc4/astra/cmd/ig-cookies/extractor"
 )
 
-const usage = `ig-cookie-extractor — extract Instagram / Facebook cookies from your browser
+const usage = `ig-cookie-extractor — extract Instagram / Facebook / Pixiv cookies from your browser
 
 Usage:
-  ig-cookie-extractor -browser <firefox|chromium> -platform <instagram|facebook> [options]
+  ig-cookie-extractor [options]
 
 Options:
-  -browser  firefox|chromium          Browser backend (required)
-  -platform instagram|facebook         Platform (default: instagram)
-  -profile  /path/to/profile          Override profile location (optional)
-  -exec     /path/to/binary           Override browser binary (optional, chromium only)
-  -out      export|env|raw            Output format (default: export)
+  -browser   firefox|chromium          Browser backend (default: firefox)
+  -platform  instagram|facebook|pixiv  Platform (default: instagram)
+  -profile   /path/to/profile          Override profile location (optional)
+  -exec      /path/to/binary           Override browser binary (optional, chromium only)
+  -out       export|env|raw            Output format (default: export)
+  -write-env                           Write/update directly to .env file
 
 Example:
-  ig-cookie-extractor -browser firefox
-  ig-cookie-extractor -browser firefox -platform facebook
+  ig-cookie-extractor
+  ig-cookie-extractor -write-env
+  ig-cookie-extractor -platform facebook -write-env
   ig-cookie-extractor -browser chromium -exec /usr/bin/brave-browser -out raw
 `
 
+type platformMeta struct {
+	label      string
+	envVar     string
+	cookieKeys []string
+}
+
+var platformConfigs = map[string]platformMeta{
+	"instagram": {
+		label:      "Instagram",
+		envVar:     "INSTAGRAM_COOKIES",
+		cookieKeys: []string{"sessionid", "csrftoken"},
+	},
+	"facebook": {
+		label:      "Facebook",
+		envVar:     "FACEBOOK_COOKIES",
+		cookieKeys: []string{"c_user", "xs", "datr", "sb", "fr", "dpr"},
+	},
+	"pixiv": {
+		label:      "Pixiv",
+		envVar:     "PIXIV_COOKIES",
+		cookieKeys: []string{"PHPSESSID", "login_ever", "device_token", "p_ab_id", "cf_clearance"},
+	},
+}
+
 func main() {
 	var (
-		browserFlag  = flag.String("browser", "", "Browser backend: firefox | chromium")
-		platformFlag = flag.String("platform", "instagram", "Platform: instagram | facebook")
+		browserFlag  = flag.String("browser", "firefox", "Browser backend: firefox | chromium")
+		platformFlag = flag.String("platform", "instagram", "Platform: instagram | facebook | pixiv")
 		profileFlag  = flag.String("profile", "", "Path to browser profile")
 		execFlag     = flag.String("exec", "", "Path to browser binary")
 		outFlag      = flag.String("out", "export", "Output format: export | env | raw")
+		writeEnvFlag = flag.Bool("write-env", false, "Write extracted cookies directly to .env file")
 	)
 
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	flag.Parse()
 
-	if *browserFlag == "" {
-		fmt.Fprintln(os.Stderr, "Error: the -browser flag is required (firefox or chromium)")
-		fmt.Fprintln(os.Stderr)
-		flag.Usage()
-		os.Exit(1)
-	}
-
-	platform := *platformFlag
-	if platform != "instagram" && platform != "facebook" && platform != "pixiv" {
+	platform := strings.ToLower(strings.TrimSpace(*platformFlag))
+	meta, ok := platformConfigs[platform]
+	if !ok {
 		fmt.Fprintf(os.Stderr, "Error: unknown platform '%s'. Use 'instagram', 'facebook' or 'pixiv'\n", platform)
 		os.Exit(1)
 	}
 
-	label := "Instagram"
-	envVar := "INSTAGRAM_COOKIES"
-	switch platform {
-	case "facebook":
-		label = "Facebook"
-		envVar = "FACEBOOK_COOKIES"
-	case "pixiv":
-		label = "Pixiv"
-		envVar = "PIXIV_COOKIES"
-	}
+	fmt.Printf("=== %s Cookie Extractor ===\n\n", meta.label)
 
-	fmt.Printf("=== %s Cookie Extractor ===\n", label)
-	fmt.Println()
-
-	var ex extractor.Extractor
-
-	switch *browserFlag {
-	case "firefox":
-		ex = extractor.NewFirefox(*profileFlag, platform)
-
-	case "chromium":
-		var err error
-		ex, err = extractor.NewChromiumExtractor(*profileFlag, *execFlag, platform)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
-
-	default:
-		fmt.Fprintf(
-			os.Stderr,
-			"Error: unknown browser '%s'. Use 'firefox' or 'chromium'\n",
-			*browserFlag,
-		)
+	ex, err := createExtractor(*browserFlag, *profileFlag, *execFlag, platform)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -95,60 +87,81 @@ func main() {
 		os.Exit(1)
 	}
 
-	cookieStr := formatCookieString(cookies, platform)
+	cookieStr := formatCookieString(cookies, meta)
 
-	fmt.Println()
-	fmt.Println("Cookies extracted successfully! ")
-	fmt.Println()
+	fmt.Printf("\nCookies extracted successfully!\n\n")
 
-	switch *outFlag {
+	outputResult(*outFlag, meta.envVar, cookieStr)
+
+	if *writeEnvFlag {
+		if err := updateEnvFile(".env", meta.envVar, cookieStr); err != nil {
+			fmt.Fprintf(os.Stderr, "Error writing to .env: %v\n", err)
+		} else {
+			fmt.Printf("\n[.env] Successfully updated %s in .env\n", meta.envVar)
+		}
+	}
+}
+
+func createExtractor(browser, profile, exec, platform string) (extractor.Extractor, error) {
+	switch strings.ToLower(browser) {
+	case "firefox":
+		return extractor.NewFirefox(profile, platform), nil
+	case "chromium":
+		return extractor.NewChromiumExtractor(profile, exec, platform)
+	default:
+		return nil, fmt.Errorf("unknown browser '%s'. Use 'firefox' or 'chromium'", browser)
+	}
+}
+
+func outputResult(outFormat, envVar, cookieStr string) {
+	switch outFormat {
 	case "export":
 		fmt.Printf("export %s=\"%s\"\n", envVar, cookieStr)
-
 	case "env":
 		fmt.Printf("%s=\"%s\"\n", envVar, cookieStr)
-
 	case "raw":
 		fmt.Println(cookieStr)
-
 	default:
-		fmt.Fprintf(
-			os.Stderr,
-			"Warning: unknown format '%s', falling back to 'export'\n\n",
-			*outFlag,
-		)
+		fmt.Fprintf(os.Stderr, "Warning: unknown format '%s', falling back to 'export'\n\n", outFormat)
 		fmt.Printf("export %s=\"%s\"\n", envVar, cookieStr)
 	}
 }
 
-func formatCookieString(c *extractor.Cookies, platform string) string {
+func formatCookieString(c *extractor.Cookies, meta platformMeta) string {
 	var parts []string
-	switch platform {
-	case "facebook":
-		// datr + sb are required for FB to honor the session on browser/mobile
-		// and GraphQL endpoints — without them c_user+xs only works for the
-		// facebookexternalhit crawler (single og:image, no carousel).
-		for _, name := range []string{"c_user", "xs", "datr", "sb", "fr", "dpr"} {
-			if v, ok := c.Values[name]; ok {
-				parts = append(parts, name+"="+v)
-			}
-		}
-	case "pixiv":
-		// Pixiv honors login off PHPSESSID; forward the auth cookies verbatim.
-		for _, name := range []string{
-			"PHPSESSID", "login_ever", "device_token", "p_ab_id", "cf_clearance",
-		} {
-			if v, ok := c.Values[name]; ok {
-				parts = append(parts, name+"="+v)
-			}
-		}
-	default:
-		if v, ok := c.Values["sessionid"]; ok {
-			parts = append(parts, "sessionid="+v)
-		}
-		if v, ok := c.Values["csrftoken"]; ok {
-			parts = append(parts, "csrftoken="+v)
+	for _, name := range meta.cookieKeys {
+		if v, ok := c.Values[name]; ok && v != "" {
+			parts = append(parts, name+"="+v)
 		}
 	}
 	return strings.Join(parts, "; ")
+}
+
+func updateEnvFile(envPath, envVar, cookieStr string) error {
+	content, err := os.ReadFile(envPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return os.WriteFile(envPath, []byte(fmt.Sprintf("%s=%q\n", envVar, cookieStr)), 0644)
+		}
+		return err
+	}
+
+	lines := strings.Split(string(content), "\n")
+	found := false
+	prefix := envVar + "="
+
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, prefix) {
+			lines[i] = fmt.Sprintf("%s=%q", envVar, cookieStr)
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		lines = append(lines, fmt.Sprintf("%s=%q", envVar, cookieStr))
+	}
+
+	return os.WriteFile(envPath, []byte(strings.Join(lines, "\n")), 0644)
 }

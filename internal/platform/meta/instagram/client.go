@@ -177,37 +177,34 @@ func extractMediaID(ctx context.Context, shortcode string) (string, error) {
 
 // --- Mobile API types ---
 
+type mobileVideoVersion struct {
+	Type   int    `json:"type"`
+	URL    string `json:"url"`
+	Width  int    `json:"width"`
+	Height int    `json:"height"`
+}
+
+type mobileImageCandidate struct {
+	URL    string `json:"url"`
+	Width  int    `json:"width,omitempty"`
+	Height int    `json:"height,omitempty"`
+}
+
+type mobileImageVersions struct {
+	Candidates []mobileImageCandidate `json:"candidates"`
+}
+
 type mobileMediaItem struct {
-	ID            string `json:"id"`
-	Pk            string `json:"pk"`
-	Code          string `json:"code"`
-	MediaType     int    `json:"media_type"` // 1=photo, 2=video, 8=carousel
-	VideoVersions []struct {
-		Type   int    `json:"type"`
-		URL    string `json:"url"`
-		Width  int    `json:"width"`
-		Height int    `json:"height"`
-	} `json:"video_versions"`
-	ImageVersions2 *struct {
-		Candidates []struct {
-			URL    string `json:"url"`
-			Width  int    `json:"width"`
-			Height int    `json:"height"`
-		} `json:"candidates"`
-	} `json:"image_versions2"`
-	CarouselMedia []struct {
-		MediaType     int `json:"media_type"`
-		VideoVersions []struct {
-			Type   int    `json:"type"`
-			URL    string `json:"url"`
-			Width  int    `json:"width"`
-			Height int    `json:"height"`
-		} `json:"video_versions"`
-		ImageVersions2 *struct {
-			Candidates []struct {
-				URL string `json:"url"`
-			} `json:"candidates"`
-		} `json:"image_versions2"`
+	ID             string                 `json:"id"`
+	Pk             string                 `json:"pk"`
+	Code           string                 `json:"code"`
+	MediaType      int                    `json:"media_type"` // 1=photo, 2=video, 8=carousel
+	VideoVersions  []mobileVideoVersion   `json:"video_versions"`
+	ImageVersions2 *mobileImageVersions   `json:"image_versions2"`
+	CarouselMedia  []struct {
+		MediaType      int                  `json:"media_type"`
+		VideoVersions  []mobileVideoVersion `json:"video_versions"`
+		ImageVersions2 *mobileImageVersions `json:"image_versions2"`
 	} `json:"carousel_media"`
 	Caption *struct {
 		Text string `json:"text"`

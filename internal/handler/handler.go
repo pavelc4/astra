@@ -61,6 +61,21 @@ func normalizeURL(rawURL string) string {
 	return cache.NormalizeURL(rawURL)
 }
 
+// decodeCached safely casts data to T or unmarshals []byte SQLite rows into T.
+func decodeCached[T any](data any) (T, bool) {
+	if d, ok := data.(T); ok {
+		return d, true
+	}
+	if raw, ok := data.([]byte); ok {
+		var target T
+		if err := json.Unmarshal(raw, &target); err == nil {
+			return target, true
+		}
+	}
+	var zero T
+	return zero, false
+}
+
 // download builds a caching download handler for a fetch function. Go doesn't
 // allow generic methods, so the injected *Handlers is passed as the first
 // argument to reach the cache and the singleflight group.
@@ -84,17 +99,9 @@ func download[T any](h *Handlers, fetchFunc func(ctx context.Context, url string
 				response.HandleError(w, cachedErr)
 				return
 			}
-			if d, ok := data.(T); ok {
-				response.OK(w, d, successMsg+" (cached)")
+			if target, ok := decodeCached[T](data); ok {
+				response.OK(w, target, successMsg+" (cached)")
 				return
-			}
-			// When restored from SQLite, data is []byte
-			if raw, ok := data.([]byte); ok {
-				var target T
-				if err := json.Unmarshal(raw, &target); err == nil {
-					response.OK(w, target, successMsg+" (cached)")
-					return
-				}
 			}
 		}
 
@@ -110,16 +117,9 @@ func download[T any](h *Handlers, fetchFunc func(ctx context.Context, url string
 			// rate-limit 400): if this request saw a stale copy, serve it and
 			// keep the stale entry (don't overwrite it with a negative one).
 			if state == cache.Stale {
-				if d, ok := data.(T); ok {
-					response.OK(w, d, successMsg+" (stale)")
+				if target, ok := decodeCached[T](data); ok {
+					response.OK(w, target, successMsg+" (stale)")
 					return
-				}
-				if raw, ok := data.([]byte); ok {
-					var target T
-					if unmarshalErr := json.Unmarshal(raw, &target); unmarshalErr == nil {
-						response.OK(w, target, successMsg+" (stale)")
-						return
-					}
 				}
 			}
 			h.cache.SetErr(key, err, h.negTTL)

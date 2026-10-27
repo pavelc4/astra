@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -54,15 +53,10 @@ func (h *Handlers) UniversalDownload(w http.ResponseWriter, r *http.Request) {
 			response.HandleError(w, cachedErr)
 			return
 		}
-		if raw, ok := data.([]byte); ok {
-			var target any
-			if unmarshalErr := json.Unmarshal(raw, &target); unmarshalErr == nil {
-				response.OK(w, target, successMsg+" (cached)")
-				return
-			}
+		if target, ok := decodeCached[any](data); ok {
+			response.OK(w, target, successMsg+" (cached)")
+			return
 		}
-		response.OK(w, data, successMsg+" (cached)")
-		return
 	}
 
 	v, err, _ := h.sf.Do(key, func() (any, error) {
@@ -71,15 +65,10 @@ func (h *Handlers) UniversalDownload(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		if state == cache.Stale {
-			if raw, ok := data.([]byte); ok {
-				var target any
-				if unmarshalErr := json.Unmarshal(raw, &target); unmarshalErr == nil {
-					response.OK(w, target, successMsg+" (stale)")
-					return
-				}
+			if target, ok := decodeCached[any](data); ok {
+				response.OK(w, target, successMsg+" (stale)")
+				return
 			}
-			response.OK(w, data, successMsg+" (stale)")
-			return
 		}
 		h.cache.SetErr(key, err, h.negTTL)
 		response.HandleError(w, err)

@@ -11,11 +11,35 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+type firefoxPlatformConfig struct {
+	hostFilter  string
+	cookieNames []string
+	label       string
+}
+
+var firefoxPlatforms = map[string]firefoxPlatformConfig{
+	"facebook": {
+		hostFilter:  "%facebook.com",
+		cookieNames: []string{"c_user", "xs"},
+		label:       "Facebook",
+	},
+	"pixiv": {
+		hostFilter:  "%pixiv.net",
+		cookieNames: []string{"PHPSESSID"},
+		label:       "Pixiv",
+	},
+	"instagram": {
+		hostFilter:  "%instagram.com",
+		cookieNames: []string{"sessionid", "csrftoken"},
+		label:       "Instagram",
+	},
+}
+
 // firefoxExtractor reads cookies directly from the moz_cookies SQLite DB.
 // Works with: Firefox, Zen Browser, LibreWolf, Floorp, Waterfox, etc.
 type firefoxExtractor struct {
 	profileHint string // optional: override profile directory
-	platform    string // "instagram" or "facebook"
+	platform    string // "instagram", "facebook", or "pixiv"
 }
 
 // NewFirefox creates a Firefox/Zen extractor.
@@ -28,40 +52,12 @@ func (f *firefoxExtractor) Name() string {
 	return "Firefox/Zen (SQLite)"
 }
 
-func (f *firefoxExtractor) hostFilter() string {
-	switch f.platform {
-	case "facebook":
-		return "%facebook.com"
-	case "pixiv":
-		return "%pixiv.net"
-	default:
-		return "%instagram.com"
-	}
-}
-
-func (f *firefoxExtractor) cookieNames() []string {
-	switch f.platform {
-	case "facebook":
-		return []string{"c_user", "xs"}
-	case "pixiv":
-		return []string{"PHPSESSID"}
-	default:
-		return []string{"sessionid", "csrftoken"}
-	}
-}
-
-func (f *firefoxExtractor) platformLabel() string {
-	switch f.platform {
-	case "facebook":
-		return "Facebook"
-	case "pixiv":
-		return "Pixiv"
-	default:
-		return "Instagram"
-	}
-}
-
 func (f *firefoxExtractor) Extract() (*Cookies, error) {
+	cfg, ok := firefoxPlatforms[f.platform]
+	if !ok {
+		cfg = firefoxPlatforms["instagram"]
+	}
+
 	dbPath, err := f.resolveCookiesDB()
 	if err != nil {
 		return nil, fmt.Errorf("resolve cookies.sqlite: %w", err)
@@ -69,15 +65,14 @@ func (f *firefoxExtractor) Extract() (*Cookies, error) {
 
 	fmt.Printf("[firefox] Using profile: %s\n", filepath.Dir(dbPath))
 
-	// Firefox keeps a WAL lock on the live DB —
-	// copy it to /tmp first.
+	// Firefox keeps a WAL lock on the live DB — copy to /tmp first.
 	tmpPath, err := copyToTemp(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("copy cookies.sqlite to /tmp: %w", err)
 	}
 	defer os.Remove(tmpPath)
 
-	return queryFirefoxDB(tmpPath, f.hostFilter(), f.cookieNames(), f.platformLabel())
+	return queryFirefoxDB(tmpPath, cfg.hostFilter, cfg.cookieNames, cfg.label)
 }
 
 // resolveCookiesDB finds the first valid cookies.sqlite on the system.
@@ -246,8 +241,11 @@ func copyToTemp(src string) (string, error) {
 }
 
 func newestFile(paths []string) string {
+	if len(paths) == 0 {
+		return ""
+	}
 	best := paths[0]
-	bestTime := int64(0)
+	var bestTime int64
 
 	for _, p := range paths {
 		info, err := os.Stat(p)
@@ -255,8 +253,8 @@ func newestFile(paths []string) string {
 			continue
 		}
 
-		if info.ModTime().Unix() > bestTime {
-			bestTime = info.ModTime().Unix()
+		if modNano := info.ModTime().UnixNano(); modNano > bestTime {
+			bestTime = modNano
 			best = p
 		}
 	}

@@ -177,55 +177,24 @@ func convertMediaItem(item *mobileMediaItem) *MediaInfo {
 		result.OwnerUser = item.User.Username
 	}
 
-	if item.MediaType == 2 {
-		// single video - select highest resolution version
-		if len(item.VideoVersions) > 0 {
-			bestIdx := 0
-			bestRes := item.VideoVersions[0].Width * item.VideoVersions[0].Height
-			for i := 1; i < len(item.VideoVersions); i++ {
-				res := item.VideoVersions[i].Width * item.VideoVersions[i].Height
-				if res > bestRes {
-					bestRes = res
-					bestIdx = i
-				}
-			}
-			v := item.VideoVersions[bestIdx]
-			result.Videos = append(result.Videos, MediaItem{
-				Quality: fmt.Sprintf("%dx%d", v.Width, v.Height),
-				URL:     v.URL,
-			})
+	switch item.MediaType {
+	case 2: // single video
+		if v := bestVideoItem(item.VideoVersions); v != nil {
+			result.Videos = append(result.Videos, *v)
 		}
-	} else if item.MediaType == 8 {
-		// carousel
+	case 8: // carousel
 		for _, cm := range item.CarouselMedia {
 			if cm.MediaType == 2 {
-				// select highest resolution version for this slide
-				if len(cm.VideoVersions) > 0 {
-					bestIdx := 0
-					bestRes := cm.VideoVersions[0].Width * cm.VideoVersions[0].Height
-					for i := 1; i < len(cm.VideoVersions); i++ {
-						res := cm.VideoVersions[i].Width * cm.VideoVersions[i].Height
-						if res > bestRes {
-							bestRes = res
-							bestIdx = i
-						}
-					}
-					v := cm.VideoVersions[bestIdx]
-					result.Videos = append(result.Videos, MediaItem{
-						Quality: fmt.Sprintf("%dx%d", v.Width, v.Height),
-						URL:     v.URL,
-					})
+				if v := bestVideoItem(cm.VideoVersions); v != nil {
+					result.Videos = append(result.Videos, *v)
 				}
-			} else {
-				if cm.ImageVersions2 != nil && len(cm.ImageVersions2.Candidates) > 0 {
-					result.Photos = append(result.Photos, MediaItem{URL: cm.ImageVersions2.Candidates[0].URL})
-				}
+			} else if p := firstPhotoItem(cm.ImageVersions2); p != nil {
+				result.Photos = append(result.Photos, *p)
 			}
 		}
-	} else {
-		// single photo
-		if item.ImageVersions2 != nil && len(item.ImageVersions2.Candidates) > 0 {
-			result.Photos = append(result.Photos, MediaItem{URL: item.ImageVersions2.Candidates[0].URL})
+	default: // single photo
+		if p := firstPhotoItem(item.ImageVersions2); p != nil {
+			result.Photos = append(result.Photos, *p)
 		}
 	}
 
@@ -237,4 +206,29 @@ func convertMediaItem(item *mobileMediaItem) *MediaInfo {
 	result.Items = append(result.Photos, result.Videos...)
 
 	return result
+}
+
+func bestVideoItem(versions []mobileVideoVersion) *MediaItem {
+	if len(versions) == 0 {
+		return nil
+	}
+	best := versions[0]
+	bestRes := best.Width * best.Height
+	for _, v := range versions[1:] {
+		if res := v.Width * v.Height; res > bestRes {
+			bestRes = res
+			best = v
+		}
+	}
+	return &MediaItem{
+		Quality: fmt.Sprintf("%dx%d", best.Width, best.Height),
+		URL:     best.URL,
+	}
+}
+
+func firstPhotoItem(img *mobileImageVersions) *MediaItem {
+	if img != nil && len(img.Candidates) > 0 {
+		return &MediaItem{URL: img.Candidates[0].URL}
+	}
+	return nil
 }
