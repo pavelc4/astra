@@ -91,27 +91,22 @@ cp .env.example .env
 | `HOST` | Server host interface | `0.0.0.0` |
 | `INSTAGRAM_COOKIES` | Session cookies for Instagram API access | Optional |
 | `FACEBOOK_COOKIES` | Session cookies for Facebook authenticated scraping (private/group posts, albums) | Optional |
+| `PIXIV_COOKIES` | Session cookies for Pixiv authenticated scraping & R-18 access | Optional |
 
 ---
 
-## Cookie Exporting Guide
+## Cookie Dumper Tool (`cmd/cookie-dumper`)
 
-Some platforms require session cookies to access content behind logins or age-gates.
+Astra includes a built-in CLI tool to extract session cookies directly from your browser (Firefox, Zen Browser, Chrome, Brave, Chromium) and update `.env` automatically:
 
-### Instagram
-1. Log in to [instagram.com](https://www.instagram.com) in your browser.
-2. Open DevTools (`F12`) → **Application** → **Cookies** → `https://www.instagram.com`.
-3. Copy the values of `sessionid` and `csrftoken`.
-4. Add to `.env`:
-   ```env
-   INSTAGRAM_COOKIES="sessionid=YOUR_SESSION_ID_HERE; csrftoken=YOUR_CSRF_TOKEN_HERE"
-   ```
-
-### Facebook
-Public Facebook media is scraped directly via HTML/GraphQL-payload parsers. For private/group posts and multi-photo albums, provide `FACEBOOK_COOKIES`. Extract them with the bundled tool:
 ```bash
-go build -o ig-cookies ./cmd/ig-cookies
-./ig-cookies -browser firefox -platform facebook -out env   # works with Firefox/Zen/LibreWolf
+# Build tool
+go build -o cookie-dumper ./cmd/cookie-dumper
+
+# Extract and write directly to .env
+./cookie-dumper -platform instagram -write-env
+./cookie-dumper -platform facebook -write-env
+./cookie-dumper -platform pixiv -write-env
 ```
 
 ---

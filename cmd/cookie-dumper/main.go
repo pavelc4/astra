@@ -6,13 +6,13 @@ import (
 	"os"
 	"strings"
 
-	"github.com/pavelc4/astra/cmd/ig-cookies/extractor"
+	"github.com/pavelc4/astra/cmd/cookie-dumper/extractor"
 )
 
-const usage = `ig-cookie-extractor — extract Instagram / Facebook / Pixiv cookies from your browser
+const usage = `cookie-dumper — extract Instagram / Facebook / Pixiv cookies from your browser
 
 Usage:
-  ig-cookie-extractor [options]
+  cookie-dumper [options]
 
 Options:
   -browser   firefox|chromium          Browser backend (default: firefox)
@@ -23,10 +23,11 @@ Options:
   -write-env                           Write/update directly to .env file
 
 Example:
-  ig-cookie-extractor
-  ig-cookie-extractor -write-env
-  ig-cookie-extractor -platform facebook -write-env
-  ig-cookie-extractor -browser chromium -exec /usr/bin/brave-browser -out raw
+  cookie-dumper
+  cookie-dumper -write-env
+  cookie-dumper -platform pixiv -write-env
+  cookie-dumper -platform facebook -write-env
+  cookie-dumper -browser chromium -exec /usr/bin/brave-browser -out raw
 `
 
 type platformMeta struct {

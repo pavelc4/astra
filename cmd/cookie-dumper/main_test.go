@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pavelc4/astra/cmd/ig-cookies/extractor"
+	"github.com/pavelc4/astra/cmd/cookie-dumper/extractor"
 )
 
 func TestFormatCookieString(t *testing.T) {
