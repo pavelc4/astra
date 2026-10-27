@@ -4,9 +4,9 @@ go 1.26.3
 
 require (
 	github.com/PuerkitoBio/goquery v1.13.0
-	github.com/chromedp/cdproto v0.157.8
-	github.com/chromedp/chromedp v0.21.0
-	github.com/go-chi/chi/v5 v5.3.0
+	github.com/chromedp/cdproto v0.158.4
+	github.com/chromedp/chromedp v0.16.0
+	github.com/go-chi/chi/v5 v5.5.0
 	github.com/lmittmann/tint v1.2.0
 	github.com/mattn/go-sqlite3 v1.14.52
 	golang.org/x/sync v0.23.0
