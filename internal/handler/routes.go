@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -71,13 +72,13 @@ func (h *Handlers) Register(r chi.Router) {
 	})
 	r.Route("/api/pixiv", func(r chi.Router) {
 		r.Get("/download", h.PixivDownload)
-		r.Get("/profile", download(h, pixiv.FetchUserProfile, "Pixiv profile fetched successfully"))
-		r.Get("/illustrations", download(h, pixiv.FetchUserIllustrations, "Pixiv illustrations fetched successfully"))
-		r.Get("/bookmarks", download(h, pixiv.FetchUserBookmarks, "Pixiv bookmarks fetched successfully"))
+		r.Get("/profile", pixivArtworkList(h, pixiv.FetchUserProfile, "Pixiv profile fetched successfully"))
+		r.Get("/illustrations", pixivArtworkList(h, pixiv.FetchUserIllustrations, "Pixiv illustrations fetched successfully"))
+		r.Get("/bookmarks", pixivArtworkList(h, pixiv.FetchUserBookmarks, "Pixiv bookmarks fetched successfully"))
 		r.Get("/all", download(h, pixiv.FetchUserAllWorks, "Pixiv user works fetched successfully"))
 		r.Get("/ugoira", download(h, pixiv.FetchUgoiraDirect, "Pixiv ugoira meta fetched successfully"))
-		r.Get("/novel", download(h, pixiv.FetchNovel, "Pixiv novel fetched successfully"))
-		r.Get("/user", download(h, pixiv.FetchUserDetail, "Pixiv user details fetched successfully"))
+		r.Get("/novel", h.PixivNovel)
+		r.Get("/user", h.PixivUser)
 		r.Get("/search", h.PixivSearch)
 		r.Get("/ranking", h.PixivRanking)
 		r.Get("/image", h.PixivImage)
@@ -140,7 +141,7 @@ func (h *Handlers) PixivDownload(w http.ResponseWriter, r *http.Request) {
 // /api/pixiv/image endpoint on the same origin as the incoming request.
 func pixivProxyURL(r *http.Request) func(string) string {
 	scheme := "http"
-	if r.TLS != nil {
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
 		scheme = "https"
 	}
 	base := scheme + "://" + r.Host + "/api/pixiv/image?url="
@@ -195,7 +196,13 @@ func (h *Handlers) PixivRanking(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if target, ok := decodeCached[[]pixiv.RankingItem](data); ok {
-			response.OK(w, target, "Pixiv rankings fetched successfully (cached)")
+			proxy := pixivProxyURL(r)
+			itemsCopy := make([]pixiv.RankingItem, len(target))
+			copy(itemsCopy, target)
+			for i := range itemsCopy {
+				itemsCopy[i].URL = proxy(itemsCopy[i].URL)
+			}
+			response.OK(w, itemsCopy, "Pixiv rankings fetched successfully (cached)")
 			return
 		}
 	}
@@ -207,7 +214,13 @@ func (h *Handlers) PixivRanking(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if state == cache.Stale {
 			if target, ok := decodeCached[[]pixiv.RankingItem](data); ok {
-				response.OK(w, target, "Pixiv rankings fetched successfully (stale)")
+				proxy := pixivProxyURL(r)
+				itemsCopy := make([]pixiv.RankingItem, len(target))
+				copy(itemsCopy, target)
+				for i := range itemsCopy {
+					itemsCopy[i].URL = proxy(itemsCopy[i].URL)
+				}
+				response.OK(w, itemsCopy, "Pixiv rankings fetched successfully (stale)")
 				return
 			}
 		}
@@ -216,8 +229,18 @@ func (h *Handlers) PixivRanking(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.cache.SetOK(key, v, h.freshTTL, h.staleTTL)
-	response.OK(w, v, "Pixiv rankings fetched successfully")
+	if target, ok := v.([]pixiv.RankingItem); ok {
+		h.cache.SetOK(key, target, h.freshTTL, h.staleTTL)
+		proxy := pixivProxyURL(r)
+		itemsCopy := make([]pixiv.RankingItem, len(target))
+		copy(itemsCopy, target)
+		for i := range itemsCopy {
+			itemsCopy[i].URL = proxy(itemsCopy[i].URL)
+		}
+		response.OK(w, itemsCopy, "Pixiv rankings fetched successfully")
+		return
+	}
+	response.HandleError(w, errors.NewValidation("internal type mismatch"))
 }
 
 // PixivSearch searches illustrations and manga by keyword/tag (mode=all|safe|r18, page=1..).
@@ -247,7 +270,13 @@ func (h *Handlers) PixivSearch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if target, ok := decodeCached[[]pixiv.SearchItem](data); ok {
-			response.OK(w, target, "Pixiv search results fetched successfully (cached)")
+			proxy := pixivProxyURL(r)
+			itemsCopy := make([]pixiv.SearchItem, len(target))
+			copy(itemsCopy, target)
+			for i := range itemsCopy {
+				itemsCopy[i].ThumbURL = proxy(itemsCopy[i].ThumbURL)
+			}
+			response.OK(w, itemsCopy, "Pixiv search results fetched successfully (cached)")
 			return
 		}
 	}
@@ -259,7 +288,13 @@ func (h *Handlers) PixivSearch(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if state == cache.Stale {
 			if target, ok := decodeCached[[]pixiv.SearchItem](data); ok {
-				response.OK(w, target, "Pixiv search results fetched successfully (stale)")
+				proxy := pixivProxyURL(r)
+				itemsCopy := make([]pixiv.SearchItem, len(target))
+				copy(itemsCopy, target)
+				for i := range itemsCopy {
+					itemsCopy[i].ThumbURL = proxy(itemsCopy[i].ThumbURL)
+				}
+				response.OK(w, itemsCopy, "Pixiv search results fetched successfully (stale)")
 				return
 			}
 		}
@@ -268,8 +303,198 @@ func (h *Handlers) PixivSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.cache.SetOK(key, v, h.freshTTL, h.staleTTL)
-	response.OK(w, v, "Pixiv search results fetched successfully")
+	if target, ok := v.([]pixiv.SearchItem); ok {
+		h.cache.SetOK(key, target, h.freshTTL, h.staleTTL)
+		proxy := pixivProxyURL(r)
+		itemsCopy := make([]pixiv.SearchItem, len(target))
+		copy(itemsCopy, target)
+		for i := range itemsCopy {
+			itemsCopy[i].ThumbURL = proxy(itemsCopy[i].ThumbURL)
+		}
+		response.OK(w, itemsCopy, "Pixiv search results fetched successfully")
+		return
+	}
+	response.HandleError(w, errors.NewValidation("internal type mismatch"))
+}
+
+// PixivUser fetches creator details and rewrites avatar and social image URLs into our /image proxy.
+func (h *Handlers) PixivUser(w http.ResponseWriter, r *http.Request) {
+	targetURL := r.URL.Query().Get("url")
+	if targetURL == "" {
+		response.HandleError(w, errors.NewValidation("url parameter is required"))
+		return
+	}
+
+	nurl := cache.NormalizeURL(targetURL)
+	key := cache.HashKey("pixiv_user", nurl)
+
+	data, cachedErr, state := h.cache.Get(key)
+	if state == cache.Fresh {
+		if cachedErr != nil {
+			response.HandleError(w, cachedErr)
+			return
+		}
+		if u, ok := decodeCached[*pixiv.UserDetail](data); ok {
+			uCopy := *u
+			proxy := pixivProxyURL(r)
+			uCopy.Avatar = proxy(uCopy.Avatar)
+			uCopy.AvatarBig = proxy(uCopy.AvatarBig)
+			response.OK(w, &uCopy, "Pixiv user details fetched successfully (cached)")
+			return
+		}
+	}
+
+	v, err, _ := h.sf.Do(key, func() (any, error) {
+		return pixiv.FetchUserDetail(r.Context(), nurl)
+	})
+
+	if err != nil {
+		if state == cache.Stale {
+			if u, ok := decodeCached[*pixiv.UserDetail](data); ok {
+				uCopy := *u
+				proxy := pixivProxyURL(r)
+				uCopy.Avatar = proxy(uCopy.Avatar)
+				uCopy.AvatarBig = proxy(uCopy.AvatarBig)
+				response.OK(w, &uCopy, "Pixiv user details fetched successfully (stale)")
+				return
+			}
+		}
+		h.cache.SetErr(key, err, h.negTTL)
+		response.HandleError(w, err)
+		return
+	}
+
+	if u, ok := v.(*pixiv.UserDetail); ok {
+		h.cache.SetOK(key, u, h.freshTTL, h.staleTTL)
+		uCopy := *u
+		proxy := pixivProxyURL(r)
+		uCopy.Avatar = proxy(uCopy.Avatar)
+		uCopy.AvatarBig = proxy(uCopy.AvatarBig)
+		response.OK(w, &uCopy, "Pixiv user details fetched successfully")
+		return
+	}
+	response.HandleError(w, errors.NewValidation("internal type mismatch"))
+}
+
+// PixivNovel retrieves full novel text content and rewrites cover image URLs into our /image proxy.
+func (h *Handlers) PixivNovel(w http.ResponseWriter, r *http.Request) {
+	targetURL := r.URL.Query().Get("url")
+	if targetURL == "" {
+		response.HandleError(w, errors.NewValidation("url parameter is required"))
+		return
+	}
+
+	nurl := cache.NormalizeURL(targetURL)
+	key := cache.HashKey("pixiv_novel", nurl)
+
+	data, cachedErr, state := h.cache.Get(key)
+	if state == cache.Fresh {
+		if cachedErr != nil {
+			response.HandleError(w, cachedErr)
+			return
+		}
+		if n, ok := decodeCached[*pixiv.Novel](data); ok {
+			nCopy := *n
+			proxy := pixivProxyURL(r)
+			nCopy.CoverURL = proxy(nCopy.CoverURL)
+			response.OK(w, &nCopy, "Pixiv novel fetched successfully (cached)")
+			return
+		}
+	}
+
+	v, err, _ := h.sf.Do(key, func() (any, error) {
+		return pixiv.FetchNovel(r.Context(), nurl)
+	})
+
+	if err != nil {
+		if state == cache.Stale {
+			if n, ok := decodeCached[*pixiv.Novel](data); ok {
+				nCopy := *n
+				proxy := pixivProxyURL(r)
+				nCopy.CoverURL = proxy(nCopy.CoverURL)
+				response.OK(w, &nCopy, "Pixiv novel fetched successfully (stale)")
+				return
+			}
+		}
+		h.cache.SetErr(key, err, h.negTTL)
+		response.HandleError(w, err)
+		return
+	}
+
+	if n, ok := v.(*pixiv.Novel); ok {
+		h.cache.SetOK(key, n, h.freshTTL, h.staleTTL)
+		nCopy := *n
+		proxy := pixivProxyURL(r)
+		nCopy.CoverURL = proxy(nCopy.CoverURL)
+		response.OK(w, &nCopy, "Pixiv novel fetched successfully")
+		return
+	}
+	response.HandleError(w, errors.NewValidation("internal type mismatch"))
+}
+
+func pixivArtworkList(h *Handlers, fetchFunc func(context.Context, string) ([]pixiv.Artwork, error), successMsg string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rawURL := r.URL.Query().Get("url")
+		if rawURL == "" {
+			response.HandleError(w, errors.NewValidation("url parameter is required"))
+			return
+		}
+		nurl := cache.NormalizeURL(rawURL)
+		key := cache.HashKey(successMsg, nurl)
+
+		data, cachedErr, state := h.cache.Get(key)
+		if state == cache.Fresh {
+			if cachedErr != nil {
+				response.HandleError(w, cachedErr)
+				return
+			}
+			if items, ok := decodeCached[[]pixiv.Artwork](data); ok {
+				proxy := pixivProxyURL(r)
+				itemsCopy := make([]pixiv.Artwork, len(items))
+				copy(itemsCopy, items)
+				for i := range itemsCopy {
+					itemsCopy[i].Thumb = proxy(itemsCopy[i].Thumb)
+				}
+				response.OK(w, itemsCopy, successMsg+" (cached)")
+				return
+			}
+		}
+
+		v, err, _ := h.sf.Do(key, func() (any, error) {
+			return fetchFunc(r.Context(), nurl)
+		})
+
+		if err != nil {
+			if state == cache.Stale {
+				if items, ok := decodeCached[[]pixiv.Artwork](data); ok {
+					proxy := pixivProxyURL(r)
+					itemsCopy := make([]pixiv.Artwork, len(items))
+					copy(itemsCopy, items)
+					for i := range itemsCopy {
+						itemsCopy[i].Thumb = proxy(itemsCopy[i].Thumb)
+					}
+					response.OK(w, itemsCopy, successMsg+" (stale)")
+					return
+				}
+			}
+			h.cache.SetErr(key, err, h.negTTL)
+			response.HandleError(w, err)
+			return
+		}
+
+		if items, ok := v.([]pixiv.Artwork); ok {
+			h.cache.SetOK(key, items, h.freshTTL, h.staleTTL)
+			proxy := pixivProxyURL(r)
+			itemsCopy := make([]pixiv.Artwork, len(items))
+			copy(itemsCopy, items)
+			for i := range itemsCopy {
+				itemsCopy[i].Thumb = proxy(itemsCopy[i].Thumb)
+			}
+			response.OK(w, itemsCopy, successMsg)
+			return
+		}
+		response.HandleError(w, errors.NewValidation("internal type mismatch"))
+	}
 }
 
 func handleRoot(w http.ResponseWriter, r *http.Request) {
