@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -252,6 +253,141 @@ func FetchUserAllWorks(ctx context.Context, targetURL string) (*UserAllWorks, er
 	}
 
 	return result, nil
+}
+
+// FetchNovel retrieves full novel text content and metadata from /ajax/novel/{id}.
+func FetchNovel(ctx context.Context, targetURL string) (*Novel, error) {
+	m := reNovelID.FindStringSubmatch(targetURL)
+	if m == nil {
+		return nil, errors.NewInvalidURL("not a valid Pixiv novel URL (expected /novel/show.php?id={id})")
+	}
+	id := m[1]
+
+	body, err := get(ctx, fmt.Sprintf("/ajax/novel/%s?time=%d", id, time.Now().UnixMilli()))
+	if err != nil {
+		return nil, err
+	}
+
+	var data novelResp
+	if err := json.Unmarshal(body, &data); err != nil {
+		return nil, errors.NewUpstream(err.Error())
+	}
+	if data.Error {
+		return nil, errors.NewUpstream(data.Message)
+	}
+
+	b := data.Body
+	tags := make([]string, len(b.Tags.Tags))
+	for i, t := range b.Tags.Tags {
+		tags[i] = t.Tag
+	}
+
+	return &Novel{
+		ID:             b.ID,
+		Title:          b.Title,
+		Description:    b.Description,
+		Content:        b.Content,
+		CoverURL:       b.CoverURL,
+		UserID:         b.UserID,
+		UserName:       b.UserName,
+		WordCount:      b.WordCount,
+		CharacterCount: b.CharacterCount,
+		ReadingTime:    b.ReadingTime,
+		Tags:           tags,
+		PageURL:        fmt.Sprintf("https://www.pixiv.net/novel/show.php?id=%s", b.ID),
+	}, nil
+}
+
+// SearchArtworks searches artworks by tag or keyword from /ajax/search/artworks/{word}.
+func SearchArtworks(ctx context.Context, word string, page int, mode string) ([]SearchItem, error) {
+	if word == "" {
+		return nil, errors.NewValidation("search keyword 'word' is required")
+	}
+	if page < 1 {
+		page = 1
+	}
+	if mode != "safe" && mode != "r18" {
+		mode = "all"
+	}
+
+	escaped := url.PathEscape(word)
+	path := fmt.Sprintf("/ajax/search/artworks/%s?word=%s&order=date_d&mode=%s&p=%d", escaped, url.QueryEscape(word), mode, page)
+
+	body, err := get(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+
+	var data searchResp
+	if err := json.Unmarshal(body, &data); err != nil {
+		return nil, errors.NewUpstream(err.Error())
+	}
+	if data.Error {
+		return nil, errors.NewUpstream(data.Message)
+	}
+
+	rawItems := data.Body.IllustManga.Data
+	items := make([]SearchItem, len(rawItems))
+	for i, it := range rawItems {
+		items[i] = SearchItem{
+			ID:        it.ID,
+			Title:     it.Title,
+			ThumbURL:  it.URL,
+			PageURL:   fmt.Sprintf("https://www.pixiv.net/artworks/%s", it.ID),
+			UserID:    it.UserID,
+			UserName:  it.UserName,
+			PageCount: it.PageCount,
+			Tags:      it.Tags,
+			AIType:    it.AIType,
+			XRestrict: it.XRestrict,
+		}
+	}
+
+	return items, nil
+}
+
+// FetchUserDetail retrieves comprehensive creator profile details from /ajax/user/{id}?full=1.
+func FetchUserDetail(ctx context.Context, targetURL string) (*UserDetail, error) {
+	m := reUserID.FindStringSubmatch(targetURL)
+	if m == nil {
+		return nil, errors.NewInvalidURL("not a valid Pixiv user URL (expected /users/{id})")
+	}
+	userID := m[1]
+
+	body, err := get(ctx, fmt.Sprintf("/ajax/user/%s?full=1", userID))
+	if err != nil {
+		return nil, err
+	}
+
+	var data userDetailResp
+	if err := json.Unmarshal(body, &data); err != nil {
+		return nil, errors.NewUpstream(err.Error())
+	}
+	if data.Error {
+		return nil, errors.NewUpstream(data.Message)
+	}
+
+	b := data.Body
+	social := make(map[string]string)
+	if b.Social.Twitter != nil && b.Social.Twitter.URL != "" {
+		social["twitter"] = b.Social.Twitter.URL
+	}
+	if b.Social.Pawoo != nil && b.Social.Pawoo.URL != "" {
+		social["pawoo"] = b.Social.Pawoo.URL
+	}
+
+	return &UserDetail{
+		UserID:    b.UserID,
+		Name:      b.Name,
+		Avatar:    b.Image,
+		AvatarBig: b.ImageBig,
+		Comment:   b.Comment,
+		Webpage:   b.Webpage,
+		Social:    social,
+		Following: b.Following,
+		Premium:   b.Premium,
+		Region:    b.Region,
+	}, nil
 }
 
 // get performs an authenticated ajax GET and returns the raw response body.

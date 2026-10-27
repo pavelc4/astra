@@ -135,3 +135,56 @@ func TestValidRankingModes(t *testing.T) {
 		}
 	}
 }
+
+func TestReNovelID(t *testing.T) {
+	tests := []struct {
+		url      string
+		expected string
+		match    bool
+	}{
+		{"https://www.pixiv.net/novel/show.php?id=12345678", "12345678", true},
+		{"https://www.pixiv.net/en/novel/show.php?id=87654321", "87654321", true},
+		{"https://www.pixiv.net/novels/11223344", "11223344", true},
+		{"https://www.pixiv.net/novel/556677", "556677", true},
+		{"https://pixiv.net/artworks/999", "999", true},
+		{"https://www.pixiv.net/users/123456", "", false},
+		{"invalid-novel-url", "", false},
+	}
+
+	for _, tt := range tests {
+		m := reNovelID.FindStringSubmatch(tt.url)
+		if tt.match {
+			if m == nil || m[1] != tt.expected {
+				t.Errorf("reNovelID(%q) = %v, expected %s", tt.url, m, tt.expected)
+			}
+		} else {
+			if m != nil {
+				t.Errorf("reNovelID(%q) matched unexpectedly: %v", tt.url, m)
+			}
+		}
+	}
+}
+
+func TestFetchNovelInvalidURL(t *testing.T) {
+	ctx := context.Background()
+	_, err := FetchNovel(ctx, "https://example.com/not-novel")
+	if err == nil {
+		t.Fatal("expected error for invalid pixiv novel url, got nil")
+	}
+}
+
+func TestSearchArtworksValidation(t *testing.T) {
+	ctx := context.Background()
+	_, err := SearchArtworks(ctx, "", 1, "all")
+	if err == nil {
+		t.Fatal("expected error for empty search keyword, got nil")
+	}
+}
+
+func TestFetchUserDetailInvalidURL(t *testing.T) {
+	ctx := context.Background()
+	_, err := FetchUserDetail(ctx, "https://example.com/not-user")
+	if err == nil {
+		t.Fatal("expected error for invalid pixiv user url, got nil")
+	}
+}

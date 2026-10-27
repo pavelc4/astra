@@ -68,6 +68,117 @@ type userProfileAllResp struct {
 	} `json:"body"`
 }
 
+// Novel represents a Pixiv novel with its text content and metadata.
+type Novel struct {
+	ID             string   `json:"id"`
+	Title          string   `json:"title"`
+	Description    string   `json:"description"`
+	Content        string   `json:"content"`
+	CoverURL       string   `json:"coverUrl"`
+	UserID         string   `json:"userId"`
+	UserName       string   `json:"userName"`
+	WordCount      int      `json:"wordCount"`
+	CharacterCount int      `json:"characterCount"`
+	ReadingTime    int      `json:"readingTime"`
+	Tags           []string `json:"tags"`
+	PageURL        string   `json:"pageUrl"`
+}
+
+type novelResp struct {
+	Error   bool   `json:"error"`
+	Message string `json:"message"`
+	Body    struct {
+		ID             string `json:"id"`
+		Title          string `json:"title"`
+		Description    string `json:"description"`
+		Content        string `json:"content"`
+		CoverURL       string `json:"coverUrl"`
+		UserID         string `json:"userId"`
+		UserName       string `json:"userName"`
+		WordCount      int    `json:"wordCount"`
+		CharacterCount int    `json:"characterCount"`
+		ReadingTime    int    `json:"readingTime"`
+		Tags           struct {
+			Tags []struct {
+				Tag string `json:"tag"`
+			} `json:"tags"`
+		} `json:"tags"`
+	} `json:"body"`
+}
+
+// SearchItem represents an illustration/manga matching a search query.
+type SearchItem struct {
+	ID        string   `json:"id"`
+	Title     string   `json:"title"`
+	ThumbURL  string   `json:"thumbUrl"`
+	PageURL   string   `json:"pageUrl"`
+	UserID    string   `json:"userId"`
+	UserName  string   `json:"userName"`
+	PageCount int      `json:"pageCount"`
+	Tags      []string `json:"tags"`
+	AIType    int      `json:"aiType"`
+	XRestrict int      `json:"xRestrict"`
+}
+
+type searchResp struct {
+	Error   bool   `json:"error"`
+	Message string `json:"message"`
+	Body    struct {
+		IllustManga struct {
+			Data []struct {
+				ID        string   `json:"id"`
+				Title     string   `json:"title"`
+				URL       string   `json:"url"`
+				UserID    string   `json:"userId"`
+				UserName  string   `json:"userName"`
+				PageCount int      `json:"pageCount"`
+				Tags      []string `json:"tags"`
+				AIType    int      `json:"aiType"`
+				XRestrict int      `json:"xRestrict"`
+			} `json:"data"`
+			Total int `json:"total"`
+		} `json:"illustManga"`
+	} `json:"body"`
+}
+
+// UserDetail represents comprehensive artist profile data from /ajax/user/{id}?full=1.
+type UserDetail struct {
+	UserID    string            `json:"userId"`
+	Name      string            `json:"name"`
+	Avatar    string            `json:"avatar"`
+	AvatarBig string            `json:"avatarBig"`
+	Comment   string            `json:"comment"`
+	Webpage   string            `json:"webpage"`
+	Social    map[string]string `json:"social,omitempty"`
+	Following int               `json:"following"`
+	Premium   bool              `json:"premium"`
+	Region    string            `json:"region"`
+}
+
+type userDetailResp struct {
+	Error   bool   `json:"error"`
+	Message string `json:"message"`
+	Body    struct {
+		UserID    string `json:"userId"`
+		Name      string `json:"name"`
+		Image     string `json:"image"`
+		ImageBig  string `json:"imageBig"`
+		Comment   string `json:"comment"`
+		Webpage   string `json:"webpage"`
+		Following int    `json:"following"`
+		Premium   bool   `json:"premium"`
+		Region    string `json:"region"`
+		Social    struct {
+			Twitter *struct {
+				URL string `json:"url"`
+			} `json:"twitter,omitempty"`
+			Pawoo *struct {
+				URL string `json:"url"`
+			} `json:"pawoo,omitempty"`
+		} `json:"social"`
+	} `json:"body"`
+}
+
 // illustBody is the full subset of the /ajax/illust/{id} response.
 type illustBody struct {
 	IllustType    int    `json:"illustType"` // 0=illust, 1=manga, 2=ugoira

@@ -76,6 +76,9 @@ func (h *Handlers) Register(r chi.Router) {
 		r.Get("/bookmarks", download(h, pixiv.FetchUserBookmarks, "Pixiv bookmarks fetched successfully"))
 		r.Get("/all", download(h, pixiv.FetchUserAllWorks, "Pixiv user works fetched successfully"))
 		r.Get("/ugoira", download(h, pixiv.FetchUgoiraDirect, "Pixiv ugoira meta fetched successfully"))
+		r.Get("/novel", download(h, pixiv.FetchNovel, "Pixiv novel fetched successfully"))
+		r.Get("/user", download(h, pixiv.FetchUserDetail, "Pixiv user details fetched successfully"))
+		r.Get("/search", h.PixivSearch)
 		r.Get("/ranking", h.PixivRanking)
 		r.Get("/image", h.PixivImage)
 	})
@@ -217,10 +220,63 @@ func (h *Handlers) PixivRanking(w http.ResponseWriter, r *http.Request) {
 	response.OK(w, v, "Pixiv rankings fetched successfully")
 }
 
+// PixivSearch searches illustrations and manga by keyword/tag (mode=all|safe|r18, page=1..).
+func (h *Handlers) PixivSearch(w http.ResponseWriter, r *http.Request) {
+	word := r.URL.Query().Get("word")
+	if word == "" {
+		response.HandleError(w, errors.NewValidation("word parameter is required"))
+		return
+	}
+	mode := r.URL.Query().Get("mode")
+	if mode == "" {
+		mode = "all"
+	}
+	pageStr := r.URL.Query().Get("page")
+	page := 1
+	if pageStr != "" {
+		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+			page = p
+		}
+	}
+
+	key := cache.HashKey("pixiv_search_"+mode+"_"+word, strconv.Itoa(page))
+	data, cachedErr, state := h.cache.Get(key)
+	if state == cache.Fresh {
+		if cachedErr != nil {
+			response.HandleError(w, cachedErr)
+			return
+		}
+		if target, ok := decodeCached[[]pixiv.SearchItem](data); ok {
+			response.OK(w, target, "Pixiv search results fetched successfully (cached)")
+			return
+		}
+	}
+
+	v, err, _ := h.sf.Do(key, func() (any, error) {
+		return pixiv.SearchArtworks(r.Context(), word, page, mode)
+	})
+
+	if err != nil {
+		if state == cache.Stale {
+			if target, ok := decodeCached[[]pixiv.SearchItem](data); ok {
+				response.OK(w, target, "Pixiv search results fetched successfully (stale)")
+				return
+			}
+		}
+		h.cache.SetErr(key, err, h.negTTL)
+		response.HandleError(w, err)
+		return
+	}
+
+	h.cache.SetOK(key, v, h.freshTTL, h.staleTTL)
+	response.OK(w, v, "Pixiv search results fetched successfully")
+}
+
 func handleRoot(w http.ResponseWriter, r *http.Request) {
 	response.OK(w, map[string]any{
 		"endpoints": []string{
 			"/health",
+			"/api/download",
 			"/api/tiktok/download",
 			"/api/tiktok/profile",
 			"/api/tiktok/music",
@@ -241,6 +297,12 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 			"/api/pixiv/profile",
 			"/api/pixiv/illustrations",
 			"/api/pixiv/bookmarks",
+			"/api/pixiv/all",
+			"/api/pixiv/ugoira",
+			"/api/pixiv/novel",
+			"/api/pixiv/user",
+			"/api/pixiv/search",
+			"/api/pixiv/ranking",
 			"/api/pixiv/image",
 		},
 	}, "Universal Downloader API is running")
