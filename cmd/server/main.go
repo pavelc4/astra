@@ -50,6 +50,21 @@ func main() {
 	stopSig := make(chan os.Signal, 1)
 	signal.Notify(stopSig, os.Interrupt, syscall.SIGTERM)
 
+	// SIGHUP listener: reload cookies from .env on the fly without stopping server (pkill -HUP astra-server)
+	hupSig := make(chan os.Signal, 1)
+	signal.Notify(hupSig, syscall.SIGHUP)
+	go func() {
+		for range hupSig {
+			slog.Info("received SIGHUP: reloading cookies from .env...")
+			reloaded, err := config.ReloadCookies()
+			if err != nil {
+				slog.Error("failed to reload cookies from .env", "error", err)
+			} else {
+				slog.Info("cookies reloaded successfully without restart", "platforms", reloaded)
+			}
+		}
+	}()
+
 	go func() {
 		slog.Info("server starting", "host", cfg.Host, "port", cfg.Port)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

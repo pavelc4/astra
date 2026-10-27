@@ -8,6 +8,7 @@
 package cache
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -67,6 +68,12 @@ func New(maxEntries int, cleanupInterval time.Duration, dbPath ...string) *Cache
 		if err != nil {
 			slog.Error("failed to open sqlite cache, running memory-only", "path", path, "error", err)
 		} else {
+			// Connection pool configuration per golang-database guidelines
+			db.SetMaxOpenConns(10)
+			db.SetMaxIdleConns(5)
+			db.SetConnMaxLifetime(1 * time.Hour)
+			db.SetConnMaxIdleTime(10 * time.Minute)
+
 			if err := initSchema(db); err != nil {
 				slog.Error("failed to init sqlite cache schema, running memory-only", "path", path, "error", err)
 				_ = db.Close()
@@ -81,6 +88,20 @@ func New(maxEntries int, cleanupInterval time.Duration, dbPath ...string) *Cache
 }
 
 func initSchema(db *sql.DB) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	pragmas := `
+	PRAGMA journal_mode = WAL;
+	PRAGMA synchronous = NORMAL;
+	PRAGMA busy_timeout = 5000;
+	PRAGMA cache_size = -2000;
+	PRAGMA auto_vacuum = INCREMENTAL;
+	`
+	if _, err := db.ExecContext(ctx, pragmas); err != nil {
+		slog.Warn("failed to apply sqlite pragmas", "error", err)
+	}
+
 	schema := `
 	CREATE TABLE IF NOT EXISTS cache_entries (
 		key TEXT PRIMARY KEY,
@@ -91,7 +112,7 @@ func initSchema(db *sql.DB) error {
 	);
 	CREATE INDEX IF NOT EXISTS idx_cache_stale ON cache_entries(stale_until);
 	`
-	_, err := db.Exec(schema)
+	_, err := db.ExecContext(ctx, schema)
 	return err
 }
 
@@ -118,13 +139,17 @@ func (c *Cache) Get(key string) (data any, err error, state State) {
 
 	// 2. Tier 2: SQLite lookup
 	if c.db != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
 		var (
 			rawBytes  []byte
 			errMsg    string
 			freshUnix int64
 			staleUnix int64
 		)
-		row := c.db.QueryRow(
+		row := c.db.QueryRowContext(
+			ctx,
 			"SELECT data, error, fresh_until, stale_until FROM cache_entries WHERE key = ?",
 			key,
 		)
@@ -164,6 +189,8 @@ func (c *Cache) Get(key string) (data any, err error, state State) {
 			c.mu.Unlock()
 
 			return rawBytes, cachedErr, st
+		} else if !errors.Is(scanErr, sql.ErrNoRows) {
+			slog.Debug("sqlite cache query miss or scan error", "key", key, "error", scanErr)
 		}
 	}
 
@@ -187,6 +214,9 @@ func (c *Cache) SetOK(key string, data any, freshTTL, staleTTL time.Duration) {
 	if c.db != nil {
 		raw, err := json.Marshal(data)
 		if err == nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+
 			query := `
 			INSERT INTO cache_entries (key, data, error, fresh_until, stale_until)
 			VALUES (?, ?, '', ?, ?)
@@ -196,7 +226,7 @@ func (c *Cache) SetOK(key string, data any, freshTTL, staleTTL time.Duration) {
 				fresh_until = excluded.fresh_until,
 				stale_until = excluded.stale_until;
 			`
-			if _, execErr := c.db.Exec(query, key, raw, freshUntil.Unix(), staleUntil.Unix()); execErr != nil {
+			if _, execErr := c.db.ExecContext(ctx, query, key, raw, freshUntil.Unix(), staleUntil.Unix()); execErr != nil {
 				slog.Error("failed to write ok to sqlite cache", "key", key, "error", execErr)
 			}
 		}
@@ -219,6 +249,9 @@ func (c *Cache) SetErr(key string, err error, ttl time.Duration) {
 		if err != nil {
 			errMsg = err.Error()
 		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
 		query := `
 		INSERT INTO cache_entries (key, data, error, fresh_until, stale_until)
 		VALUES (?, NULL, ?, ?, ?)
@@ -228,7 +261,7 @@ func (c *Cache) SetErr(key string, err error, ttl time.Duration) {
 			fresh_until = excluded.fresh_until,
 			stale_until = excluded.stale_until;
 		`
-		if _, execErr := c.db.Exec(query, key, errMsg, until.Unix(), until.Unix()); execErr != nil {
+		if _, execErr := c.db.ExecContext(ctx, query, key, errMsg, until.Unix(), until.Unix()); execErr != nil {
 			slog.Error("failed to write err to sqlite cache", "key", key, "error", execErr)
 		}
 	}
@@ -300,9 +333,23 @@ func (c *Cache) cleanupLoop(interval time.Duration) {
 			c.mu.Unlock()
 
 			if c.db != nil {
-				if _, err := c.db.Exec("DELETE FROM cache_entries WHERE stale_until < ?", now.Unix()); err != nil {
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				// 1. Delete expired entries
+				if _, err := c.db.ExecContext(ctx, "DELETE FROM cache_entries WHERE stale_until < ?", now.Unix()); err != nil {
 					slog.Error("failed to sweep expired sqlite cache entries", "error", err)
 				}
+
+				// 2. Bound total row count to 50,000 max (protect disk space on small VPS)
+				capQuery := `
+				DELETE FROM cache_entries WHERE key NOT IN (
+					SELECT key FROM cache_entries ORDER BY stale_until DESC LIMIT 50000
+				);
+				`
+				_, _ = c.db.ExecContext(ctx, capQuery)
+
+				// 3. Incremental vacuum to reclaim pages without blocking
+				_, _ = c.db.ExecContext(ctx, "PRAGMA incremental_vacuum(50);")
+				cancel()
 			}
 		}
 	}

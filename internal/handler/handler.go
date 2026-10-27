@@ -33,15 +33,16 @@ func New() *Handlers {
 	if dbPath == "" {
 		dbPath = "astra_cache.db"
 	}
-	return NewWithCache(cache.New(10_000, 5*time.Minute, dbPath))
+	// Max 500 items in RAM L1 (~1-2MB RAM), remainder on disk in SQLite L2. Ideal for 1GB RAM VPS.
+	return NewWithCache(cache.New(500, 5*time.Minute, dbPath))
 }
 
 // NewWithCache builds Handlers with a custom cache instance, primarily for tests.
 func NewWithCache(c *cache.Cache) *Handlers {
 	return &Handlers{
 		cache:    c,
-		freshTTL: 15 * time.Minute,
-		staleTTL: 1 * time.Hour,
+		freshTTL: 24 * time.Hour, // Serve directly for 24h
+		staleTTL: 72 * time.Hour, // Serve as stale fallback for 3 days
 		negTTL:   3 * time.Minute,
 	}
 }
