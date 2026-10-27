@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pavelc4/astra/internal/errors"
 	"github.com/pavelc4/astra/internal/httpclient"
 )
 
@@ -92,11 +93,17 @@ func (c *IGClient) getJSON(ctx context.Context, url string) ([]byte, error) {
 		body := string(data)
 		switch {
 		case strings.Contains(body, "feedback_required") || strings.Contains(body, "is_spam"):
-			return nil, fmt.Errorf("instagram rate-limited (feedback_required) — back off / try later or a different IP")
+			return nil, errors.NewRateLimited(
+				"instagram rate-limited: please try again later",
+				"instagram feedback_required: soft-block or rate-limited",
+			)
 		case strings.Contains(body, "login_required") || strings.Contains(body, "checkpoint"):
-			return nil, fmt.Errorf("instagram %d: login/checkpoint required — cookie expired or invalid", resp.StatusCode)
+			return nil, errors.NewCookieExpired(
+				"instagram authentication required: cookie expired or checkpoint triggered",
+				fmt.Sprintf("instagram %d: login/checkpoint required — cookie expired or invalid", resp.StatusCode),
+			)
 		default:
-			return nil, fmt.Errorf("instagram returned %d", resp.StatusCode)
+			return nil, errors.NewUpstream(fmt.Sprintf("instagram returned %d", resp.StatusCode))
 		}
 	}
 

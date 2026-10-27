@@ -2,9 +2,9 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
-	"net/url"
-	"strings"
+	"os"
 	"time"
 
 	"golang.org/x/sync/singleflight"
@@ -25,41 +25,30 @@ type Handlers struct {
 	negTTL   time.Duration // failed fetch negatively cached this long
 }
 
-// New builds Handlers with a bounded download cache. Tests can construct their
-// own instance for an isolated cache. staleTTL stays well under the signed
-// lifetime of fbcdn media URLs (a decoded photo `oe` was ~4 days out), so a
-// stale response never hands out a dead URL.
+// New builds Handlers with a bounded persistent download cache. If CACHE_DB_PATH
+// is defined in the environment, it uses that path; otherwise defaults to
+// "astra_cache.db".
 func New() *Handlers {
+	dbPath := os.Getenv("CACHE_DB_PATH")
+	if dbPath == "" {
+		dbPath = "astra_cache.db"
+	}
+	return NewWithCache(cache.New(10_000, 5*time.Minute, dbPath))
+}
+
+// NewWithCache builds Handlers with a custom cache instance, primarily for tests.
+func NewWithCache(c *cache.Cache) *Handlers {
 	return &Handlers{
-		cache:    cache.New(10_000, 5*time.Minute),
+		cache:    c,
 		freshTTL: 15 * time.Minute,
 		staleTTL: 1 * time.Hour,
 		negTTL:   3 * time.Minute,
 	}
 }
 
+// normalizeURL is a backward-compatible wrapper around cache.NormalizeURL.
 func normalizeURL(rawURL string) string {
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		return rawURL
-	}
-
-	q := parsed.Query()
-	trackingParams := []string{
-		"utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
-		"igsh", "igshid", "fbclid", "gclid", "share_item", "share_link_id",
-		"share_app_id", "share_id", "social_sharing",
-	}
-
-	for _, param := range trackingParams {
-		q.Del(param)
-	}
-
-	parsed.RawQuery = q.Encode()
-	parsed.Fragment = ""
-
-	parsed.Host = strings.ToLower(parsed.Host)
-	return parsed.String()
+	return cache.NormalizeURL(rawURL)
 }
 
 // download builds a caching download handler for a fetch function. Go doesn't
@@ -75,10 +64,9 @@ func download[T any](h *Handlers, fetchFunc func(ctx context.Context, url string
 
 		// Key namespaced by operation: the same URL served by different endpoints
 		// (e.g. instagram download vs profile) returns different types T, so they
-		// must not share a cache entry or a singleflight slot — sharing would
-		// hand a follower the wrong type.
-		nurl := normalizeURL(rawURL)
-		key := successMsg + "|" + nurl
+		// must not share a cache entry or a singleflight slot.
+		nurl := cache.NormalizeURL(rawURL)
+		key := cache.HashKey(successMsg, nurl)
 
 		data, cachedErr, state := h.cache.Get(key)
 		if state == cache.Fresh {
@@ -89,6 +77,14 @@ func download[T any](h *Handlers, fetchFunc func(ctx context.Context, url string
 			if d, ok := data.(T); ok {
 				response.OK(w, d, successMsg+" (cached)")
 				return
+			}
+			// When restored from SQLite, data is []byte
+			if raw, ok := data.([]byte); ok {
+				var target T
+				if err := json.Unmarshal(raw, &target); err == nil {
+					response.OK(w, target, successMsg+" (cached)")
+					return
+				}
 			}
 		}
 
@@ -107,6 +103,13 @@ func download[T any](h *Handlers, fetchFunc func(ctx context.Context, url string
 				if d, ok := data.(T); ok {
 					response.OK(w, d, successMsg+" (stale)")
 					return
+				}
+				if raw, ok := data.([]byte); ok {
+					var target T
+					if unmarshalErr := json.Unmarshal(raw, &target); unmarshalErr == nil {
+						response.OK(w, target, successMsg+" (stale)")
+						return
+					}
 				}
 			}
 			h.cache.SetErr(key, err, h.negTTL)

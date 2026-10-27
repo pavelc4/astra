@@ -7,6 +7,11 @@
 *.test
 *.out
 
+# SQLite
+*.db
+*.db-shm
+*.db-wal
+
 # IDE
 .idea/
 .vscode/

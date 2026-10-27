@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	apperrors "github.com/pavelc4/astra/internal/errors"
 )
@@ -43,16 +44,74 @@ func Fail(w http.ResponseWriter, status int, msg string, code apperrors.ErrorCod
 func HandleError(w http.ResponseWriter, err error) {
 	var appErr *apperrors.AppError
 	if errors.As(err, &appErr) {
-		Fail(w, appErr.Status, appErr.Message, appErr.Code, appErr.Message)
+		detail := appErr.Detail
+		if detail == "" {
+			detail = appErr.Message
+		}
+		Fail(w, appErr.Status, appErr.Message, appErr.Code, detail)
 		return
 	}
-	Fail(w, http.StatusInternalServerError, "Internal server error", apperrors.CodeInternalError, err.Error())
+
+	errMsg := err.Error()
+	lowered := strings.ToLower(errMsg)
+
+	switch {
+	case strings.Contains(lowered, "login_required") ||
+		strings.Contains(lowered, "checkpoint") ||
+		strings.Contains(lowered, "cookie expired") ||
+		strings.Contains(lowered, "cookie required"):
+		Fail(
+			w,
+			http.StatusBadGateway,
+			"Upstream authentication required: cookie expired or invalid",
+			apperrors.CodeCookieExpired,
+			errMsg,
+		)
+	case strings.Contains(lowered, "feedback_required") ||
+		strings.Contains(lowered, "rate limit") ||
+		strings.Contains(lowered, "rate-limit") ||
+		strings.Contains(lowered, "too many requests"):
+		Fail(
+			w,
+			http.StatusTooManyRequests,
+			"Upstream rate limit reached, please try again later",
+			apperrors.CodeRateLimited,
+			errMsg,
+		)
+	case strings.Contains(lowered, "not found") ||
+		strings.Contains(lowered, "user not found") ||
+		strings.Contains(lowered, "media not found"):
+		Fail(
+			w,
+			http.StatusNotFound,
+			"Requested media or resource not found",
+			apperrors.CodeNotFound,
+			errMsg,
+		)
+	case strings.Contains(lowered, "invalid url") ||
+		strings.Contains(lowered, "not a valid"):
+		Fail(
+			w,
+			http.StatusUnprocessableEntity,
+			"Invalid URL provided",
+			apperrors.CodeInvalidURL,
+			errMsg,
+		)
+	default:
+		Fail(
+			w,
+			http.StatusInternalServerError,
+			"Internal server error",
+			apperrors.CodeInternalError,
+			errMsg,
+		)
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(v); err != nil {
-		slog.Error("Failed to encode JSON response", "error", err)
+		slog.Error("failed to encode json response", "error", err)
 	}
 }
