@@ -250,23 +250,23 @@ func FetchUserAllWorks(ctx context.Context, targetURL string) (*UserAllWorks, er
 		return nil, errors.NewUpstream(data.Message)
 	}
 
-	result := &UserAllWorks{
-		Illusts: make([]string, 0, len(data.Body.Illusts)),
-		Manga:   make([]string, 0, len(data.Body.Manga)),
-		Novels:  make([]string, 0, len(data.Body.Novels)),
-	}
+	return &UserAllWorks{
+		Illusts: extractMapKeys(data.Body.Illusts),
+		Manga:   extractMapKeys(data.Body.Manga),
+		Novels:  extractMapKeys(data.Body.Novels),
+	}, nil
+}
 
-	for id := range data.Body.Illusts {
-		result.Illusts = append(result.Illusts, id)
+func extractMapKeys(v any) []string {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return []string{}
 	}
-	for id := range data.Body.Manga {
-		result.Manga = append(result.Manga, id)
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
 	}
-	for id := range data.Body.Novels {
-		result.Novels = append(result.Novels, id)
-	}
-
-	return result, nil
+	return keys
 }
 
 // FetchNovel retrieves full novel text content and metadata from /ajax/novel/{id}.
@@ -383,11 +383,19 @@ func FetchUserDetail(ctx context.Context, targetURL string) (*UserDetail, error)
 
 	b := data.Body
 	social := make(map[string]string)
-	if b.Social.Twitter != nil && b.Social.Twitter.URL != "" {
-		social["twitter"] = b.Social.Twitter.URL
+	if m, ok := b.Social.(map[string]any); ok {
+		for platform, rawLink := range m {
+			if linkMap, ok := rawLink.(map[string]any); ok {
+				if u, ok := linkMap["url"].(string); ok && u != "" {
+					social[platform] = u
+				}
+			}
+		}
 	}
-	if b.Social.Pawoo != nil && b.Social.Pawoo.URL != "" {
-		social["pawoo"] = b.Social.Pawoo.URL
+
+	regionStr := ""
+	if b.Region != nil && b.Region.Name != nil {
+		regionStr = *b.Region.Name
 	}
 
 	return &UserDetail{
@@ -400,7 +408,7 @@ func FetchUserDetail(ctx context.Context, targetURL string) (*UserDetail, error)
 		Social:    social,
 		Following: b.Following,
 		Premium:   b.Premium,
-		Region:    b.Region,
+		Region:    regionStr,
 	}, nil
 }
 

@@ -75,9 +75,9 @@ type userProfileAllResp struct {
 	Error   bool   `json:"error"`
 	Message string `json:"message"`
 	Body    struct {
-		Illusts map[string]any `json:"illusts"`
-		Manga   map[string]any `json:"manga"`
-		Novels  map[string]any `json:"novels"`
+		Illusts any `json:"illusts"`
+		Manga   any `json:"manga"`
+		Novels  any `json:"novels"`
 	} `json:"body"`
 }
 
@@ -180,15 +180,10 @@ type userDetailResp struct {
 		Webpage   string `json:"webpage"`
 		Following int    `json:"following"`
 		Premium   bool   `json:"premium"`
-		Region    string `json:"region"`
-		Social    struct {
-			Twitter *struct {
-				URL string `json:"url"`
-			} `json:"twitter,omitempty"`
-			Pawoo *struct {
-				URL string `json:"url"`
-			} `json:"pawoo,omitempty"`
-		} `json:"social"`
+		Region    *struct {
+			Name *string `json:"name"`
+		} `json:"region"`
+		Social any `json:"social"`
 	} `json:"body"`
 }
 
