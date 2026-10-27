@@ -12,22 +12,17 @@ import (
 	"github.com/pavelc4/astra/internal/httpclient"
 )
 
-type Result struct {
-	Platform string          `json:"platform"`
-	Raw      json.RawMessage `json:"raw"`
-}
-
 func FetchData(ctx context.Context, targetURL string) (*Result, error) {
 	payload, _ := json.Marshal(map[string]string{"url": targetURL})
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://www.genviral.io/api/tools/social-downloader", bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, GenViralEndpoint, bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Origin", "https://www.genviral.io")
-	req.Header.Set("Referer", "https://www.genviral.io/tools/download/capcut")
+	req.Header.Set("Origin", OriginURL)
+	req.Header.Set("Referer", RefererURL)
 	for k, v := range httpclient.DefaultHeaders {
 		req.Header[k] = v
 	}
@@ -43,5 +38,5 @@ func FetchData(ctx context.Context, targetURL string) (*Result, error) {
 		return nil, errors.NewUpstream("Capcut response read failed")
 	}
 
-	return &Result{Platform: "capcut", Raw: json.RawMessage(body)}, nil
+	return &Result{Platform: PlatformName, Raw: json.RawMessage(body)}, nil
 }

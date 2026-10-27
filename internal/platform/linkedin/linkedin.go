@@ -13,24 +13,8 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	"github.com/pavelc4/astra/internal/errors"
 	"github.com/pavelc4/astra/internal/httpclient"
-	"github.com/pavelc4/astra/internal/types"
+	"github.com/pavelc4/astra/internal/media"
 )
-
-type Result struct {
-	Platform  string               `json:"platform"`
-	Title     string               `json:"title"`
-	Thumbnail string               `json:"thumbnail,omitempty"`
-	Downloads []types.DownloadItem `json:"downloads"`
-}
-
-type SayWhatVideo struct {
-	URL     string `json:"url"`
-	Quality string `json:"quality"`
-}
-
-type SayWhatResponse struct {
-	Videos []SayWhatVideo `json:"videos"`
-}
 
 func FetchData(ctx context.Context, targetURL string) (*Result, error) {
 	// 1. Fetch direct HTML to extract title & thumbnail (image)
@@ -39,7 +23,7 @@ func FetchData(ctx context.Context, targetURL string) (*Result, error) {
 		return nil, fmt.Errorf("create HTML request: %w", err)
 	}
 	// Use search engine bot User-Agent for clean SSR response from LinkedIn
-	reqHTML.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)")
+	reqHTML.Header.Set("User-Agent", GooglebotUA)
 
 	respHTML, err := httpclient.Client.Do(reqHTML)
 	var title, thumbnail string
@@ -61,13 +45,13 @@ func FetchData(ctx context.Context, targetURL string) (*Result, error) {
 
 	// 2. Fetch video from saywhat.ai API
 	payload, _ := json.Marshal(map[string]string{"url": targetURL})
-	reqAPI, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://saywhat.ai/api/fetch-linkedin-page/", bytes.NewReader(payload))
+	reqAPI, err := http.NewRequestWithContext(ctx, http.MethodPost, SayWhatEndpoint, bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("create API request: %w", err)
 	}
 
 	reqAPI.Header.Set("Content-Type", "application/json")
-	reqAPI.Header.Set("Referer", "https://saywhat.ai/tools/linkedin-video-downloader/")
+	reqAPI.Header.Set("Referer", SayWhatReferer)
 	for k, v := range httpclient.DefaultHeaders {
 		reqAPI.Header[k] = v
 	}
@@ -82,15 +66,15 @@ func FetchData(ctx context.Context, targetURL string) (*Result, error) {
 		}
 	}
 
-	var downloads []types.DownloadItem
+	var downloads []media.Item
 
 	// 3. Map videos if found
 	for _, v := range sayWhat.Videos {
 		if v.URL != "" {
-			downloads = append(downloads, types.DownloadItem{
+			downloads = append(downloads, media.Item{
 				Label:   fmt.Sprintf("Video (%s)", v.Quality),
 				URL:     v.URL,
-				Type:    types.MediaVideo,
+				Type:    media.Video,
 				Quality: v.Quality,
 			})
 		}
@@ -98,10 +82,10 @@ func FetchData(ctx context.Context, targetURL string) (*Result, error) {
 
 	// 4. Fallback to high-res image if no videos are found
 	if len(downloads) == 0 && thumbnail != "" {
-		downloads = append(downloads, types.DownloadItem{
+		downloads = append(downloads, media.Item{
 			Label: "Image (Original)",
 			URL:   thumbnail,
-			Type:  types.MediaImage,
+			Type:  media.Image,
 		})
 	}
 

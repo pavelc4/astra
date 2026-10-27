@@ -13,35 +13,18 @@ import (
 	"github.com/pavelc4/astra/internal/media"
 )
 
-type SpotifyMetadata struct {
-	Name     string `json:"name"`
-	Artist   string `json:"artist"`
-	Album    string `json:"album"`
-	Duration string `json:"duration"`
-	Image    string `json:"image"`
-	Download string `json:"download"`
-}
-
-type SpotifyData struct {
-	Metadata SpotifyMetadata `json:"metadata"`
-}
-
-type SpotifyRawResponse struct {
-	Data SpotifyData `json:"data"`
-}
-
 func FetchData(ctx context.Context, targetURL string) (*media.Media, error) {
 	payload, _ := json.Marshal(map[string]string{"url": targetURL})
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://musicfab.io/api/spotify", bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, MusicFabEndpoint, bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Referer", "https://musicfab.io/")
-	req.Header.Set("Origin", "https://musicfab.io")
+	req.Header.Set("Referer", RefererURL)
+	req.Header.Set("Origin", OriginURL)
 	for k, v := range httpclient.DefaultHeaders {
 		req.Header[k] = v
 	}

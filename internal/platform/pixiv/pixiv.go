@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -14,11 +13,6 @@ import (
 	"github.com/pavelc4/astra/internal/errors"
 	"github.com/pavelc4/astra/internal/httpclient"
 	"github.com/pavelc4/astra/internal/media"
-)
-
-const (
-	baseURL = "https://www.pixiv.net"
-	referer = "https://www.pixiv.net/"
 )
 
 // pixivHTTPClient short-circuits redirects so we see the literal CDN/API status
@@ -31,18 +25,6 @@ var pixivHTTPClient = &http.Client{
 	},
 }
 
-var reArtworkID = regexp.MustCompile(`/artworks/(\d+)/?$`)
-var reUserID = regexp.MustCompile(`/users/(\d+)/?`)
-
-// Artwork is the summary returned by the profile/illustrations/bookmarks list
-// endpoints. Thumb may be empty without a (valid) cookie; pageUrl always works.
-type Artwork struct {
-	ID      string `json:"id"`
-	Title   string `json:"title"`
-	Thumb   string `json:"thumb,omitempty"`
-	PageURL string `json:"pageUrl"`
-}
-
 // pageURL returns the Nth page's original URL. Pixiv names pages _p0, _p1, ...
 // from a single template where the first page's URL already ends in p0.
 func pageURL(page int, original string) string {
@@ -50,24 +32,6 @@ func pageURL(page int, original string) string {
 		return original
 	}
 	return strings.Replace(original, "p0", "p"+strconv.Itoa(page), 1)
-}
-
-// illustBody is the subset of the /ajax/illust/{id} response we need.
-type illustBody struct {
-	IllustType int `json:"illustType"` // 0=illust, 1=manga, 2=ugoira
-	Title      string
-	PageCount  int
-	UserName   string
-	URLs       struct {
-		Original string
-		Regular  string
-	}
-}
-
-type illustResp struct {
-	Error   bool        `json:"error"`
-	Message string      `json:"message"`
-	Body    *illustBody `json:"body"`
 }
 
 func FetchData(ctx context.Context, targetURL string) (*media.Media, error) {
@@ -154,21 +118,6 @@ func fetchUserWorks(ctx context.Context, targetURL, suffix string) ([]Artwork, e
 		return nil, errors.NewInvalidURL("not a valid Pixiv user URL (expected /users/{id})")
 	}
 	return fetchWorks(ctx, m[1], suffix, "tag=&offset=0&limit=100")
-}
-
-// worksBody is the {works:[...]} part shared by the illusts/tag and bookmarks lists.
-type worksResp struct {
-	Error   bool   `json:"error"`
-	Message string `json:"message"`
-	Body    struct {
-		Works []struct {
-			ID    string `json:"id"`
-			Title string `json:"title"`
-			URLs  struct {
-				Regular string `json:"regular"`
-			} `json:"urls"`
-		} `json:"works"`
-	} `json:"body"`
 }
 
 func fetchWorks(ctx context.Context, userID, suffix, query string) ([]Artwork, error) {

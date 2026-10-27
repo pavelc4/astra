@@ -15,34 +15,19 @@ import (
 	"github.com/pavelc4/astra/internal/media"
 )
 
-type RawMedia struct {
-	URL            string `json:"url"`
-	Quality        string `json:"quality"`
-	Extension      string `json:"extension"`
-	Size           int64  `json:"size"`
-	AudioAvailable bool   `json:"audioAvailable"`
-}
-
-type RawResponse struct {
-	Title     string     `json:"title"`
-	Thumbnail string     `json:"thumbnail"`
-	Medias    []RawMedia `json:"medias"`
-}
-
 func FetchData(ctx context.Context, targetURL string) (*media.Media, error) {
-	token := "8b6e170975d92939bb67d8db567f82e43fa2da91e00a84f258af77c1186c5e8a"
 	encodedURL := base64.StdEncoding.EncodeToString([]byte(targetURL))
-	hash := url.QueryEscape(encodedURL + "1043YWlvLWRs")
-	payload := fmt.Sprintf("url=%s&token=%s&hash=%s", url.QueryEscape(targetURL), token, hash)
+	hash := url.QueryEscape(encodedURL + HashSalt)
+	payload := fmt.Sprintf("url=%s&token=%s&hash=%s", url.QueryEscape(targetURL), DefaultToken, hash)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://urlmp4.com/wp-json/aio-dl/video-data/", strings.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, APIEndpoint, strings.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Cookie", "pll_language=en")
-	req.Header.Set("Referer", "https://urlmp4.com/en/soundcloud-downloader/")
+	req.Header.Set("Referer", RefererURL)
 	for k, v := range httpclient.DefaultHeaders {
 		req.Header[k] = v
 	}

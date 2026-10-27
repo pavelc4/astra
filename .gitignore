@@ -6,6 +6,9 @@
 *.exe
 *.test
 *.out
+/ig-cookies
+/astra-server
+astra
 
 # SQLite
 *.db

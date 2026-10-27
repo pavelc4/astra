@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"time"
 
@@ -17,26 +16,6 @@ import (
 	"github.com/pavelc4/astra/internal/httpclient"
 	"github.com/pavelc4/astra/internal/media"
 )
-
-type teraboxFile struct {
-	Name         string          `json:"name"`
-	Size         string          `json:"size"`
-	FileType     string          `json:"file_type"`
-	DownloadURL  string          `json:"download_url"`
-	ZipURL       string          `json:"zip_url"`
-	ThumbnailURL string          `json:"thumbnail_url"`
-	StreamURLs   json.RawMessage `json:"stream_urls"`
-	SubtitleURL  string          `json:"subtitle_url"`
-	Duration     string          `json:"duration"`
-	Quality      string          `json:"quality"`
-}
-
-type teraboxData struct {
-	Status string        `json:"status"`
-	Files  []teraboxFile `json:"files"`
-}
-
-var nonceRe = regexp.MustCompile(`"nonce":"(.*?)"`)
 
 func FetchData(ctx context.Context, teraboxURL string) (*media.Media, error) {
 	nonce, err := fetchNonce(ctx)
@@ -50,7 +29,7 @@ func FetchData(ctx context.Context, teraboxURL string) (*media.Media, error) {
 		"nonce":  {nonce},
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://teradownloaderz.com/wp-admin/admin-ajax.php", strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, AdminAjaxEndpoint, strings.NewReader(form.Encode()))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
@@ -188,7 +167,7 @@ func fetchNonce(ctx context.Context) (string, error) {
 		return "", errors.NewUpstream("Nonce script not found")
 	}
 
-	m := nonceRe.FindStringSubmatch(script)
+	m := NonceRegex.FindStringSubmatch(script)
 	if len(m) < 2 {
 		return "", errors.NewUpstream("Nonce not found")
 	}

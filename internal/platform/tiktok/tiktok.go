@@ -7,37 +7,8 @@ import (
 	"strings"
 
 	"github.com/pavelc4/astra/internal/errors"
-	"github.com/pavelc4/astra/internal/types"
+	"github.com/pavelc4/astra/internal/media"
 )
-
-type UserInfo struct {
-	Username string `json:"username"`
-	Nickname string `json:"nickname"`
-	Avatar   string `json:"avatar"`
-}
-
-type Result struct {
-	Platform  string               `json:"platform"`
-	Title     *string              `json:"title"`
-	Thumbnail *string              `json:"thumbnail"`
-	User      *UserInfo            `json:"user,omitempty"`
-	Downloads []types.DownloadItem `json:"downloads"`
-}
-
-type UserResult struct {
-	Platform     string `json:"platform"`
-	Username     string `json:"username"`
-	Nickname     string `json:"nickname"`
-	AvatarThumb  string `json:"avatar_thumb"`
-	Avatar       string `json:"avatar"`
-	AvatarLarger string `json:"avatar_larger"`
-	Signature    string `json:"signature"`
-	Verified     bool   `json:"verified"`
-	Followers    int    `json:"followers"`
-	Following    int    `json:"following"`
-	Likes        int    `json:"likes"`
-	Videos       int    `json:"videos"`
-}
 
 func FetchData(ctx context.Context, videoURL string) (*Result, error) {
 	post, err := GetPostOriginal(ctx, videoURL)
@@ -57,31 +28,31 @@ func FetchData(ctx context.Context, videoURL string) (*Result, error) {
 		thumbnail = &post.Cover
 	}
 
-	var downloads []types.DownloadItem
+	var downloads []media.Item
 
 	if post.Play != "" {
-		downloads = append(downloads, types.DownloadItem{Label: "No Watermark", URL: post.Play, Type: types.MediaVideo})
+		downloads = append(downloads, media.Item{Label: "No Watermark", URL: post.Play, Type: media.Video})
 	}
 	if post.Hdplay != "" {
-		downloads = append(downloads, types.DownloadItem{Label: "HD", URL: post.Hdplay, Type: types.MediaVideo})
+		downloads = append(downloads, media.Item{Label: "HD", URL: post.Hdplay, Type: media.Video})
 	}
 	if post.Original != "" {
 		label := "Original"
 		if post.OriginalSize > 0 {
 			label = fmt.Sprintf("Original (%dMB)", post.OriginalSize/1024/1024)
 		}
-		downloads = append(downloads, types.DownloadItem{Label: label, URL: post.Original, Type: types.MediaVideo})
+		downloads = append(downloads, media.Item{Label: label, URL: post.Original, Type: media.Video})
 	}
 	if post.Wmplay != "" {
-		downloads = append(downloads, types.DownloadItem{Label: "With Watermark", URL: post.Wmplay, Type: types.MediaVideo})
+		downloads = append(downloads, media.Item{Label: "With Watermark", URL: post.Wmplay, Type: media.Video})
 	}
 
 	if post.Music != "" {
-		downloads = append(downloads, types.DownloadItem{Label: "Audio", URL: post.Music, Type: types.MediaAudio})
+		downloads = append(downloads, media.Item{Label: "Audio", URL: post.Music, Type: media.Audio})
 	}
 	for _, img := range post.Images {
 		if img != "" {
-			downloads = append(downloads, types.DownloadItem{URL: img, Type: types.MediaImage})
+			downloads = append(downloads, media.Item{URL: img, Type: media.Image})
 		}
 	}
 

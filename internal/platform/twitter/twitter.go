@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,35 +15,20 @@ import (
 
 	"github.com/pavelc4/astra/internal/errors"
 	"github.com/pavelc4/astra/internal/httpclient"
-	"github.com/pavelc4/astra/internal/types"
+	"github.com/pavelc4/astra/internal/media"
 )
-
-type Result struct {
-	Platform  string               `json:"platform"`
-	Type      string               `json:"type"`
-	TweetID   *string              `json:"tweetId"`
-	Title     *string              `json:"title"`
-	Duration  *string              `json:"duration"`
-	Thumbnail *string              `json:"thumbnail"`
-	Downloads []types.DownloadItem `json:"downloads"`
-}
-
-type AjaxResponse struct {
-	Status string `json:"status"`
-	Data   string `json:"data"`
-}
 
 func FetchData(ctx context.Context, tweetURL string) (*Result, error) {
 	form := url.Values{"q": {tweetURL}, "lang": {"en"}, "cftoken": {""}}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://savetwitter.net/api/ajaxSearch", strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, SaveTwitterEndpoint, strings.NewReader(form.Encode()))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-	req.Header.Set("Origin", "https://savetwitter.net")
-	req.Header.Set("Referer", "https://savetwitter.net/en4")
+	req.Header.Set("Origin", OriginURL)
+	req.Header.Set("Referer", RefererURL)
 	req.Header.Set("X-Requested-With", "XMLHttpRequest")
 
 	for k, v := range httpclient.DefaultHeaders {
@@ -69,8 +53,6 @@ func FetchData(ctx context.Context, tweetURL string) (*Result, error) {
 
 	return parseResult([]byte(ajaxResp.Data)), nil
 }
-
-var qualityRe = regexp.MustCompile(`\((\d+p)\)`)
 
 func parseResult(data []byte) *Result {
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(string(data)))
@@ -103,7 +85,7 @@ func parseResult(data []byte) *Result {
 		}
 	}
 
-	var downloads []types.DownloadItem
+	var downloads []media.Item
 	doc.Find(".tw-button-dl").Each(func(_ int, s *goquery.Selection) {
 		href, ok := s.Attr("href")
 		if !ok || !strings.Contains(href, "dl.snapcdn.app") {
@@ -113,21 +95,21 @@ func parseResult(data []byte) *Result {
 
 		if strings.Contains(text, "MP4") {
 			quality := ""
-			if m := qualityRe.FindStringSubmatch(text); len(m) > 1 {
+			if m := QualityRegex.FindStringSubmatch(text); len(m) > 1 {
 				quality = m[1]
 			}
-			downloads = append(downloads, types.DownloadItem{
+			downloads = append(downloads, media.Item{
 				Label:   fmt.Sprintf("Video %s", quality),
 				Quality: quality,
 				URL:     href,
-				Type:    types.MediaVideo,
+				Type:    media.Video,
 			})
 		}
 		if strings.Contains(text, "图片") || strings.Contains(strings.ToLower(text), "photo") || strings.Contains(strings.ToLower(text), "image") {
-			downloads = append(downloads, types.DownloadItem{
+			downloads = append(downloads, media.Item{
 				Label:   "Photo",
 				URL:     href,
-				Type:    types.MediaImage,
+				Type:    media.Image,
 				Quality: "original",
 			})
 		}
@@ -136,17 +118,17 @@ func parseResult(data []byte) *Result {
 	doc.Find(".photo-list img").Each(func(_ int, s *goquery.Selection) {
 		src, ok := s.Attr("src")
 		if ok {
-			downloads = append(downloads, types.DownloadItem{
+			downloads = append(downloads, media.Item{
 				Label:   "Photo",
 				URL:     src,
-				Type:    types.MediaImage,
+				Type:    media.Image,
 				Quality: "original",
 			})
 		}
 	})
 
 	sort.SliceStable(downloads, func(i, j int) bool {
-		if downloads[i].Type != types.MediaVideo || downloads[j].Type != types.MediaVideo {
+		if downloads[i].Type != media.Video || downloads[j].Type != media.Video {
 			return false
 		}
 		qi, _ := strconv.Atoi(strings.TrimSuffix(downloads[i].Quality, "p"))
@@ -156,7 +138,7 @@ func parseResult(data []byte) *Result {
 
 	resultType := "photo"
 	for _, d := range downloads {
-		if d.Type == types.MediaVideo {
+		if d.Type == media.Video {
 			resultType = "video"
 			break
 		}

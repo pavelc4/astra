@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"time"
 
 	"github.com/pavelc4/astra/internal/errors"
@@ -36,8 +35,7 @@ func FetchData(ctx context.Context, targetURL string) (*media.Media, error) {
 	defer resp.Body.Close()
 
 	finalURL := resp.Request.URL.String()
-	re := regexp.MustCompile(`/pin/(\d+)`)
-	matches := re.FindStringSubmatch(finalURL)
+	matches := PinIDRegex.FindStringSubmatch(finalURL)
 	if len(matches) < 2 {
 		return nil, errors.NewValidation(fmt.Sprintf("could not extract Pin ID from URL: %s", finalURL))
 	}
@@ -124,12 +122,6 @@ func FetchData(ctx context.Context, targetURL string) (*media.Media, error) {
 
 	var downloads []media.Item
 
-	// reM3U8Sig extracts the video signature from a Pinterest HLS m3u8 URL.
-	// e.g. https://v1.pinimg.com/videos/iht/hls/11/09/fe/1109feab967bec9c087b8a1c799ee244.m3u8
-	reM3U8Sig := regexp.MustCompile(`/hls/([0-9a-f]{2})/([0-9a-f]{2})/([0-9a-f]{2})/([0-9a-f]{32})\.m3u8`)
-	// reStreamEntry parses each STREAM-INF entry: captures suffix name like "720w" from the .m3u8 filename
-	reStreamEntry := regexp.MustCompile(`RESOLUTION=(\d+x\d+)[^\n]*\n([^\n]+_([^.\n]+)\.m3u8)`)
-
 	// parseMasterM3U8 fetches the master m3u8 playlist and returns (suffix→label) pairs ordered by resolution descending.
 	parseMasterM3U8 := func(m3u8URL string) []struct{ Suffix, Label string } {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, m3u8URL, nil)
@@ -146,7 +138,7 @@ func FetchData(ctx context.Context, targetURL string) (*media.Media, error) {
 		if err != nil {
 			return nil
 		}
-		matches := reStreamEntry.FindAllStringSubmatch(string(body), -1)
+		matches := StreamEntryRe.FindAllStringSubmatch(string(body), -1)
 		type entry struct {
 			width  int
 			suffix string
@@ -195,7 +187,7 @@ func FetchData(ctx context.Context, targetURL string) (*media.Media, error) {
 				continue
 			}
 			// Try to extract signature and build direct mp4 URLs
-			matches := reM3U8Sig.FindStringSubmatch(u)
+			matches := M3U8SigRegex.FindStringSubmatch(u)
 			if len(matches) == 5 {
 				sig := matches[4]
 				p1, p2, p3 := matches[1], matches[2], matches[3]

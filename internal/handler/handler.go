@@ -10,6 +10,7 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"github.com/pavelc4/astra/internal/cache"
+	"github.com/pavelc4/astra/internal/engine"
 	"github.com/pavelc4/astra/internal/errors"
 	"github.com/pavelc4/astra/internal/response"
 )
@@ -19,6 +20,7 @@ import (
 // cache globals.
 type Handlers struct {
 	cache    *cache.Cache
+	registry *engine.Registry
 	sf       singleflight.Group
 	freshTTL time.Duration // cached result served directly
 	staleTTL time.Duration // served as last-known-good if a refresh fails
@@ -41,10 +43,17 @@ func New() *Handlers {
 func NewWithCache(c *cache.Cache) *Handlers {
 	return &Handlers{
 		cache:    c,
+		registry: engine.DefaultRegistry(),
 		freshTTL: 24 * time.Hour, // Serve directly for 24h
 		staleTTL: 72 * time.Hour, // Serve as stale fallback for 3 days
 		negTTL:   3 * time.Minute,
 	}
+}
+
+// WithRegistry sets a custom extractor registry on Handlers, useful for testing.
+func (h *Handlers) WithRegistry(reg *engine.Registry) *Handlers {
+	h.registry = reg
+	return h
 }
 
 // normalizeURL is a backward-compatible wrapper around cache.NormalizeURL.

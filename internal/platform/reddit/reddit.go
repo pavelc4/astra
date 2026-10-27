@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
@@ -15,9 +14,6 @@ import (
 	"github.com/pavelc4/astra/internal/httpclient"
 	"github.com/pavelc4/astra/internal/media"
 )
-
-var reVReddit = regexp.MustCompile(`https://v\.redd\.it/[^\s"<&]+`)
-var reImgRedd = regexp.MustCompile(`https://i\.redd\.it/[^\s"<]+`)
 
 func FetchData(ctx context.Context, targetURL string) (*media.Media, error) {
 	// Normalize URL: strip query params and trailing slash for cleaner rapidsave request
@@ -28,14 +24,14 @@ func FetchData(ctx context.Context, targetURL string) (*media.Media, error) {
 	parsedURL.RawQuery = ""
 	cleanURL := strings.TrimRight(parsedURL.String(), "/")
 
-	rapidsaveURL := fmt.Sprintf("https://rapidsave.com/info?url=%s", url.QueryEscape(cleanURL))
+	rapidsaveURL := fmt.Sprintf("%s?url=%s", RapidSaveURL, url.QueryEscape(cleanURL))
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rapidsaveURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 
-	req.Header.Set("Referer", "https://rapidsave.com/")
+	req.Header.Set("Referer", RefererURL)
 	req.Header.Set("Accept", "text/html,application/xhtml+xml")
 	for k, v := range httpclient.DefaultHeaders {
 		req.Header[k] = v
@@ -77,7 +73,7 @@ func FetchData(ctx context.Context, targetURL string) (*media.Media, error) {
 			videoURL = u.Query().Get("video_url")
 		}
 		if videoURL == "" {
-			m := reVReddit.FindString(href)
+			m := VRedditRegex.FindString(href)
 			if m != "" {
 				videoURL = m
 			}
@@ -102,7 +98,7 @@ func FetchData(ctx context.Context, targetURL string) (*media.Media, error) {
 					thumbnail = src
 				}
 			}
-		} else if reImgRedd.MatchString(href) {
+		} else if ImgReddRegex.MatchString(href) {
 			if thumbnail == "" {
 				thumbnail = href
 			}

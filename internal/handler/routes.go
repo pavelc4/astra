@@ -29,6 +29,7 @@ import (
 // live (replacing the former one-file-per-platform handlers).
 func (h *Handlers) Register(r chi.Router) {
 	r.Get("/health", h.Health)
+	r.Get("/api/download", h.UniversalDownload)
 
 	r.Route("/api/tiktok", func(r chi.Router) {
 		r.Get("/download", download(h, tiktok.FetchData, "TikTok media fetched successfully"))
