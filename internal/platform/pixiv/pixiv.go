@@ -208,11 +208,25 @@ func FetchRankings(ctx context.Context, mode string, page int) ([]RankingItem, e
 		return nil, errors.NewUpstream(err.Error())
 	}
 
-	for i := range data.Contents {
-		data.Contents[i].PageURL = fmt.Sprintf("https://www.pixiv.net/artworks/%d", data.Contents[i].IllustID)
+	items := make([]RankingItem, len(data.Contents))
+	for i, c := range data.Contents {
+		pc, _ := strconv.Atoi(c.PageCount.String())
+		items[i] = RankingItem{
+			Rank:        c.Rank,
+			IllustID:    c.IllustID,
+			Title:       c.Title,
+			UserID:      c.UserID,
+			UserName:    c.UserName,
+			URL:         c.URL,
+			PageURL:     fmt.Sprintf("https://www.pixiv.net/artworks/%d", c.IllustID),
+			PageCount:   pc,
+			ViewCount:   c.ViewCount,
+			RatingCount: c.RatingCount,
+			Tags:        c.Tags,
+		}
 	}
 
-	return data.Contents, nil
+	return items, nil
 }
 
 // FetchUserAllWorks retrieves all illust, manga, and novel IDs for a creator via /ajax/user/{id}/profile/all.

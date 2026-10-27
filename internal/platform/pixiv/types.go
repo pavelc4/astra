@@ -1,5 +1,7 @@
 package pixiv
 
+import "encoding/json"
+
 // Artwork is the summary returned by the profile/illustrations/bookmarks list
 // endpoints. Thumb may be empty without a (valid) cookie; pageUrl always works.
 type Artwork struct {
@@ -45,10 +47,21 @@ type RankingItem struct {
 }
 
 type rankingResp struct {
-	Contents []RankingItem `json:"contents"`
-	Mode     string        `json:"mode"`
-	Date     string        `json:"date"`
-	Page     int           `json:"page"`
+	Contents []struct {
+		Rank        int         `json:"rank"`
+		IllustID    int64       `json:"illust_id"`
+		Title       string      `json:"title"`
+		UserID      int64       `json:"user_id"`
+		UserName    string      `json:"user_name"`
+		URL         string      `json:"url"`
+		PageCount   json.Number `json:"illust_page_count"`
+		ViewCount   int         `json:"view_count"`
+		RatingCount int         `json:"rating_count"`
+		Tags        []string    `json:"tags"`
+	} `json:"contents"`
+	Mode string `json:"mode"`
+	Date string `json:"date"`
+	Page int    `json:"page"`
 }
 
 // UserAllWorks maps all artwork/novel IDs created by a user from /ajax/user/{id}/profile/all.

@@ -37,6 +37,7 @@ func TestReloadCookies(t *testing.T) {
 # Temporary test env
 INSTAGRAM_COOKIES="sessionid=fresh_test_session_123"
 FACEBOOK_COOKIES="c_user=test_user; xs=test_xs"
+PIXIV_COOKIES="PHPSESSID=test_pixiv_session"
 `
 	if err := os.WriteFile(filepath.Join(tempDir, ".env"), []byte(envContent), 0o600); err != nil {
 		t.Fatalf("failed to write .env: %v", err)
@@ -47,11 +48,14 @@ FACEBOOK_COOKIES="c_user=test_user; xs=test_xs"
 		t.Fatalf("ReloadCookies failed: %v", err)
 	}
 
-	if len(reloaded) < 2 {
-		t.Errorf("expected at least 2 platforms reloaded, got %v", reloaded)
+	if len(reloaded) < 3 {
+		t.Errorf("expected at least 3 platforms reloaded, got %v", reloaded)
 	}
 
 	if os.Getenv("INSTAGRAM_COOKIES") != "sessionid=fresh_test_session_123" {
 		t.Errorf("INSTAGRAM_COOKIES was not updated")
+	}
+	if os.Getenv("PIXIV_COOKIES") != "PHPSESSID=test_pixiv_session" {
+		t.Errorf("PIXIV_COOKIES was not updated")
 	}
 }

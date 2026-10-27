@@ -28,6 +28,7 @@ func main() {
 	slog.Info("cookies check",
 		"instagram_loaded", os.Getenv("INSTAGRAM_COOKIES") != "",
 		"facebook_loaded", os.Getenv("FACEBOOK_COOKIES") != "",
+		"pixiv_loaded", os.Getenv("PIXIV_COOKIES") != "",
 	)
 
 	r := chi.NewRouter()
