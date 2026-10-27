@@ -12,6 +12,7 @@ import (
 	"github.com/pavelc4/astra/internal/errors"
 	"github.com/pavelc4/astra/internal/httpclient"
 	"github.com/pavelc4/astra/internal/media"
+	"github.com/pavelc4/astra/internal/resolution"
 )
 
 // pinterestClient is a custom http.Client configured to follow redirects for pin.it URLs.
@@ -103,59 +104,8 @@ func FetchData(ctx context.Context, targetURL string) (*media.Media, error) {
 
 	var downloads []media.Item
 
-	// parseMasterM3U8 fetches the master m3u8 playlist and returns (suffix→label) pairs ordered by resolution descending.
-	parseMasterM3U8 := func(m3u8URL string) []struct{ Suffix, Label string } {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, m3u8URL, nil)
-		if err != nil {
-			return nil
-		}
-		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-		resp, err := pinterestClient.Do(req)
-		if err != nil {
-			return nil
-		}
-		defer resp.Body.Close()
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return nil
-		}
-		matches := StreamEntryRe.FindAllStringSubmatch(string(body), -1)
-		type entry struct {
-			width  int
-			suffix string
-			label  string
-		}
-		var entries []entry
-		seen := map[string]bool{}
-		for _, m := range matches {
-			res := m[1]    // e.g. "720x1280"
-			suffix := m[3] // e.g. "720w"
-			if seen[suffix] {
-				continue
-			}
-			seen[suffix] = true
-			var w int
-			fmt.Sscanf(res, "%dx", &w)
-			label := fmt.Sprintf("%dp", w)
-			entries = append(entries, entry{w, suffix, label})
-		}
-		// Sort descending by width
-		for i := 0; i < len(entries); i++ {
-			for j := i + 1; j < len(entries); j++ {
-				if entries[j].width > entries[i].width {
-					entries[i], entries[j] = entries[j], entries[i]
-				}
-			}
-		}
-		var result []struct{ Suffix, Label string }
-		for _, e := range entries {
-			result = append(result, struct{ Suffix, Label string }{e.suffix, e.label})
-		}
-		return result
-	}
-
-	// extractVideoDownloads converts a video_list map into direct MP4 DownloadItems.
-	// It fetches the m3u8 playlist to detect actual available resolutions.
+	// extractVideoDownloads converts a video_list map into direct MP4 DownloadItems
+	// using pre-defined standard resolution presets without outbound m3u8 calls.
 	extractVideoDownloads := func(videoList map[string]interface{}) []media.Item {
 		var items []media.Item
 		for _, val := range videoList {
@@ -173,15 +123,8 @@ func FetchData(ctx context.Context, targetURL string) (*media.Media, error) {
 				sig := matches[4]
 				p1, p2, p3 := matches[1], matches[2], matches[3]
 				baseURL := fmt.Sprintf("https://v1.pinimg.com/videos/iht/hls/%s/%s/%s", p1, p2, p3)
-				// Parse actual resolutions from master playlist
-				qualities := parseMasterM3U8(u)
-				if len(qualities) == 0 {
-					// Fallback if m3u8 parse fails
-					qualities = []struct{ Suffix, Label string }{
-						{"720w", "720p"}, {"540w", "540p"}, {"360w", "360p"}, {"240w", "240p"},
-					}
-				}
-				for _, q := range qualities {
+
+				for _, q := range resolution.PinterestPresets() {
 					directURL := fmt.Sprintf("%s/%s_%s.cmfv", baseURL, sig, q.Suffix)
 					items = append(items, media.Item{
 						Label:   "Video " + q.Label,

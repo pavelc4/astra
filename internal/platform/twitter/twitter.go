@@ -7,8 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
@@ -16,6 +14,7 @@ import (
 	"github.com/pavelc4/astra/internal/errors"
 	"github.com/pavelc4/astra/internal/httpclient"
 	"github.com/pavelc4/astra/internal/media"
+	"github.com/pavelc4/astra/internal/resolution"
 )
 
 func FetchData(ctx context.Context, tweetURL string) (*Result, error) {
@@ -127,14 +126,7 @@ func parseResult(data []byte) *Result {
 		}
 	})
 
-	sort.SliceStable(downloads, func(i, j int) bool {
-		if downloads[i].Type != media.Video || downloads[j].Type != media.Video {
-			return false
-		}
-		qi, _ := strconv.Atoi(strings.TrimSuffix(downloads[i].Quality, "p"))
-		qj, _ := strconv.Atoi(strings.TrimSuffix(downloads[j].Quality, "p"))
-		return qi > qj
-	})
+	resolution.SortItems(downloads)
 
 	resultType := "photo"
 	for _, d := range downloads {

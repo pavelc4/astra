@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
+	"github.com/pavelc4/astra/internal/resolution"
 )
 
 func (c *IGClient) FetchProfile(ctx context.Context, username string) (*UserProfile, error) {
@@ -209,19 +211,14 @@ func convertMediaItem(item *mobileMediaItem) *MediaInfo {
 }
 
 func bestVideoItem(versions []mobileVideoVersion) *MediaItem {
-	if len(versions) == 0 {
+	best := resolution.BestDimension(versions, func(v mobileVideoVersion) (int, int) {
+		return v.Width, v.Height
+	})
+	if best == nil {
 		return nil
 	}
-	best := versions[0]
-	bestRes := best.Width * best.Height
-	for _, v := range versions[1:] {
-		if res := v.Width * v.Height; res > bestRes {
-			bestRes = res
-			best = v
-		}
-	}
 	return &MediaItem{
-		Quality: fmt.Sprintf("%dx%d", best.Width, best.Height),
+		Quality: resolution.FromDimensions(best.Width, best.Height),
 		URL:     best.URL,
 	}
 }

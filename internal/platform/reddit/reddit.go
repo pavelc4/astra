@@ -13,6 +13,7 @@ import (
 	"github.com/pavelc4/astra/internal/errors"
 	"github.com/pavelc4/astra/internal/httpclient"
 	"github.com/pavelc4/astra/internal/media"
+	"github.com/pavelc4/astra/internal/resolution"
 )
 
 func FetchData(ctx context.Context, targetURL string) (*media.Media, error) {
@@ -68,7 +69,7 @@ func FetchData(ctx context.Context, targetURL string) (*media.Media, error) {
 
 		switch {
 		case extractVideoURL(href) != "":
-			quality := parseQuality(extractVideoURL(href))
+			quality := resolution.Parse(extractVideoURL(href))
 			downloads = append(downloads, media.Item{
 				Label:   "Video " + quality,
 				URL:     href,
@@ -111,18 +112,6 @@ func FetchData(ctx context.Context, targetURL string) (*media.Media, error) {
 	}
 
 	return media.Downloads("reddit", title, thumbnail, downloads), nil
-}
-
-func parseQuality(videoURL string) string {
-	lower := strings.ToLower(videoURL)
-	switch {
-	case strings.Contains(lower, "1080"):
-		return "1080p"
-	case strings.Contains(lower, "720"):
-		return "720p"
-	default:
-		return "hd"
-	}
 }
 
 func extractVideoURL(href string) string {
