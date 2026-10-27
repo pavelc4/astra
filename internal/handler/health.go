@@ -58,6 +58,7 @@ func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
 		"cookies": map[string]bool{
 			"instagram": os.Getenv("INSTAGRAM_COOKIES") != "",
 			"facebook":  os.Getenv("FACEBOOK_COOKIES") != "",
+			"pixiv":     os.Getenv("PIXIV_COOKIES") != "",
 		},
 		"disk": map[string]any{
 			"total": diskTotal,
