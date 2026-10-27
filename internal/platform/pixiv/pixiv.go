@@ -61,13 +61,31 @@ func FetchData(ctx context.Context, targetURL string) (*media.Media, error) {
 	}
 
 	var items []media.Item
-	if b.IllustType == 2 { // ugoira: url IS the frames zip
-		items = append(items, media.Item{
-			Label:   "Ugoira",
-			URL:     b.URLs.Original,
-			Type:    media.Video,
-			Quality: "ugoira",
-		})
+	if b.IllustType == 2 { // ugoira: animated work
+		meta, err := FetchUgoiraMeta(ctx, id)
+		if err == nil && meta != nil && meta.OriginalSrc != "" {
+			items = append(items, media.Item{
+				Label:   "Ugoira Original (Zip)",
+				URL:     meta.OriginalSrc,
+				Type:    media.Video,
+				Quality: "original",
+			})
+			if meta.Src != "" && meta.Src != meta.OriginalSrc {
+				items = append(items, media.Item{
+					Label:   "Ugoira 600x600 (Zip)",
+					URL:     meta.Src,
+					Type:    media.Video,
+					Quality: "600x600",
+				})
+			}
+		} else {
+			items = append(items, media.Item{
+				Label:   "Ugoira",
+				URL:     b.URLs.Original,
+				Type:    media.Video,
+				Quality: "ugoira",
+			})
+		}
 	} else {
 		pages := b.PageCount
 		if pages < 1 {
@@ -143,6 +161,97 @@ func fetchWorks(ctx context.Context, userID, suffix, query string) ([]Artwork, e
 		})
 	}
 	return works, nil
+}
+
+// FetchUgoiraMeta retrieves animation metadata and frames from /ajax/illust/{id}/ugoira_meta.
+func FetchUgoiraMeta(ctx context.Context, illustID string) (*UgoiraMeta, error) {
+	body, err := get(ctx, fmt.Sprintf("/ajax/illust/%s/ugoira_meta", illustID))
+	if err != nil {
+		return nil, err
+	}
+	var data ugoiraResp
+	if err := json.Unmarshal(body, &data); err != nil {
+		return nil, errors.NewUpstream(err.Error())
+	}
+	if data.Error || data.Body == nil {
+		return nil, errors.NewUpstream(data.Message)
+	}
+	return data.Body, nil
+}
+
+// FetchUgoiraDirect extracts the animation metadata directly from an artwork URL.
+func FetchUgoiraDirect(ctx context.Context, targetURL string) (*UgoiraMeta, error) {
+	m := reArtworkID.FindStringSubmatch(targetURL)
+	if m == nil {
+		return nil, errors.NewInvalidURL("not a valid Pixiv artwork URL (expected /artworks/{id})")
+	}
+	return FetchUgoiraMeta(ctx, m[1])
+}
+
+// FetchRankings gets daily, weekly, or monthly artwork rankings from /ranking.php?mode=...&format=json.
+func FetchRankings(ctx context.Context, mode string, page int) ([]RankingItem, error) {
+	if mode == "" || !validRankingModes[mode] {
+		mode = "daily"
+	}
+	if page < 1 {
+		page = 1
+	}
+
+	body, err := get(ctx, fmt.Sprintf("/ranking.php?mode=%s&p=%d&format=json", mode, page))
+	if err != nil {
+		return nil, err
+	}
+
+	var data rankingResp
+	if err := json.Unmarshal(body, &data); err != nil {
+		return nil, errors.NewUpstream(err.Error())
+	}
+
+	for i := range data.Contents {
+		data.Contents[i].PageURL = fmt.Sprintf("https://www.pixiv.net/artworks/%d", data.Contents[i].IllustID)
+	}
+
+	return data.Contents, nil
+}
+
+// FetchUserAllWorks retrieves all illust, manga, and novel IDs for a creator via /ajax/user/{id}/profile/all.
+func FetchUserAllWorks(ctx context.Context, targetURL string) (*UserAllWorks, error) {
+	m := reUserID.FindStringSubmatch(targetURL)
+	if m == nil {
+		return nil, errors.NewInvalidURL("not a valid Pixiv user URL (expected /users/{id})")
+	}
+	userID := m[1]
+
+	body, err := get(ctx, fmt.Sprintf("/ajax/user/%s/profile/all", userID))
+	if err != nil {
+		return nil, err
+	}
+
+	var data userProfileAllResp
+	if err := json.Unmarshal(body, &data); err != nil {
+		return nil, errors.NewUpstream(err.Error())
+	}
+	if data.Error {
+		return nil, errors.NewUpstream(data.Message)
+	}
+
+	result := &UserAllWorks{
+		Illusts: make([]string, 0, len(data.Body.Illusts)),
+		Manga:   make([]string, 0, len(data.Body.Manga)),
+		Novels:  make([]string, 0, len(data.Body.Novels)),
+	}
+
+	for id := range data.Body.Illusts {
+		result.Illusts = append(result.Illusts, id)
+	}
+	for id := range data.Body.Manga {
+		result.Manga = append(result.Manga, id)
+	}
+	for id := range data.Body.Novels {
+		result.Novels = append(result.Novels, id)
+	}
+
+	return result, nil
 }
 
 // get performs an authenticated ajax GET and returns the raw response body.

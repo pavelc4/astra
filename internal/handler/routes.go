@@ -3,10 +3,12 @@ package handler
 import (
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/pavelc4/astra/internal/cache"
 	"github.com/pavelc4/astra/internal/errors"
 	"github.com/pavelc4/astra/internal/platform/capcut"
 	"github.com/pavelc4/astra/internal/platform/linkedin"
@@ -72,6 +74,9 @@ func (h *Handlers) Register(r chi.Router) {
 		r.Get("/profile", download(h, pixiv.FetchUserProfile, "Pixiv profile fetched successfully"))
 		r.Get("/illustrations", download(h, pixiv.FetchUserIllustrations, "Pixiv illustrations fetched successfully"))
 		r.Get("/bookmarks", download(h, pixiv.FetchUserBookmarks, "Pixiv bookmarks fetched successfully"))
+		r.Get("/all", download(h, pixiv.FetchUserAllWorks, "Pixiv user works fetched successfully"))
+		r.Get("/ugoira", download(h, pixiv.FetchUgoiraDirect, "Pixiv ugoira meta fetched successfully"))
+		r.Get("/ranking", h.PixivRanking)
 		r.Get("/image", h.PixivImage)
 	})
 
@@ -163,6 +168,53 @@ func (h *Handlers) PixivImage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", ctype)
+}
+
+// PixivRanking fetches artwork rankings by mode and page (mode=daily|weekly|monthly|rookie|original|male|female|daily_r18).
+func (h *Handlers) PixivRanking(w http.ResponseWriter, r *http.Request) {
+	mode := r.URL.Query().Get("mode")
+	if mode == "" {
+		mode = "daily"
+	}
+	pageStr := r.URL.Query().Get("page")
+	page := 1
+	if pageStr != "" {
+		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+			page = p
+		}
+	}
+
+	key := cache.HashKey("pixiv_ranking_"+mode, strconv.Itoa(page))
+	data, cachedErr, state := h.cache.Get(key)
+	if state == cache.Fresh {
+		if cachedErr != nil {
+			response.HandleError(w, cachedErr)
+			return
+		}
+		if target, ok := decodeCached[[]pixiv.RankingItem](data); ok {
+			response.OK(w, target, "Pixiv rankings fetched successfully (cached)")
+			return
+		}
+	}
+
+	v, err, _ := h.sf.Do(key, func() (any, error) {
+		return pixiv.FetchRankings(r.Context(), mode, page)
+	})
+
+	if err != nil {
+		if state == cache.Stale {
+			if target, ok := decodeCached[[]pixiv.RankingItem](data); ok {
+				response.OK(w, target, "Pixiv rankings fetched successfully (stale)")
+				return
+			}
+		}
+		h.cache.SetErr(key, err, h.negTTL)
+		response.HandleError(w, err)
+		return
+	}
+
+	h.cache.SetOK(key, v, h.freshTTL, h.staleTTL)
+	response.OK(w, v, "Pixiv rankings fetched successfully")
 }
 
 func handleRoot(w http.ResponseWriter, r *http.Request) {

@@ -106,3 +106,32 @@ func TestFetchDataInvalidURL(t *testing.T) {
 		t.Fatal("expected error for invalid pixiv url, got nil")
 	}
 }
+
+func TestFetchUgoiraDirectInvalidURL(t *testing.T) {
+	ctx := context.Background()
+	_, err := FetchUgoiraDirect(ctx, "https://example.com/not-pixiv")
+	if err == nil {
+		t.Fatal("expected error for invalid ugoira artwork url, got nil")
+	}
+}
+
+func TestFetchUserAllWorksInvalidURL(t *testing.T) {
+	ctx := context.Background()
+	_, err := FetchUserAllWorks(ctx, "https://example.com/not-user")
+	if err == nil {
+		t.Fatal("expected error for invalid user url, got nil")
+	}
+}
+
+func TestValidRankingModes(t *testing.T) {
+	expectedModes := []string{
+		"daily", "weekly", "monthly", "rookie", "original",
+		"male", "female", "daily_r18", "weekly_r18", "r18g",
+	}
+
+	for _, m := range expectedModes {
+		if !validRankingModes[m] {
+			t.Errorf("expected ranking mode %q to be valid", m)
+		}
+	}
+}
