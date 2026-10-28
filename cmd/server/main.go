@@ -33,6 +33,7 @@ func main() {
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
+	r.Use(middleware.CleanPath)
 	r.Use(requestLogger)
 	r.Use(middleware.Recoverer)
 

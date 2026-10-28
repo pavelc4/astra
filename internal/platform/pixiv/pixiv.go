@@ -484,6 +484,13 @@ func StreamImage(ctx context.Context, imageURL string, out io.Writer) (string, e
 		ctype = "application/octet-stream"
 	}
 
+	if rw, ok := out.(http.ResponseWriter); ok {
+		rw.Header().Set("Content-Type", ctype)
+		if resp.ContentLength > 0 {
+			rw.Header().Set("Content-Length", strconv.FormatInt(resp.ContentLength, 10))
+		}
+	}
+
 	if _, err := io.Copy(out, resp.Body); err != nil {
 		return "", errors.NewUpstream(err.Error())
 	}

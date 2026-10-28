@@ -165,13 +165,10 @@ func (h *Handlers) PixivImage(w http.ResponseWriter, r *http.Request) {
 
 	// Set before streaming: headers flush once the first bytes hit the wire.
 	w.Header().Set("Content-Disposition", "attachment; filename=\"pixiv-download\"")
-	ctype, err := pixiv.StreamDownload(r.Context(), targetURL, w)
-	if err != nil {
+	if _, err := pixiv.StreamDownload(r.Context(), targetURL, w); err != nil {
 		response.HandleError(w, err)
 		return
 	}
-
-	w.Header().Set("Content-Type", ctype)
 }
 
 // PixivRanking fetches artwork rankings by mode and page (mode=daily|weekly|monthly|rookie|original|male|female|daily_r18).
