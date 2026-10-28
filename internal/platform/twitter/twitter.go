@@ -50,10 +50,10 @@ func FetchData(ctx context.Context, tweetURL string) (*Result, error) {
 		return nil, errors.NewUpstream("failed to parse SaveTwitter JSON response")
 	}
 
-	return parseResult([]byte(ajaxResp.Data)), nil
+	return ParseResult([]byte(ajaxResp.Data)), nil
 }
 
-func parseResult(data []byte) *Result {
+func ParseResult(data []byte) *Result {
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(string(data)))
 	if err != nil {
 		return &Result{Platform: "twitter", Type: "photo"}
@@ -134,6 +134,19 @@ func parseResult(data []byte) *Result {
 			resultType = "video"
 			break
 		}
+	}
+
+	// If the tweet contains video, any image in downloads is just the video's preview thumbnail.
+	// Omit it from downloads so downstream clients don't treat it as a standalone photo download,
+	// while preserving thumbnail in the Result metadata.
+	if resultType == "video" {
+		filtered := make([]media.Item, 0, len(downloads))
+		for _, d := range downloads {
+			if d.Type != media.Image {
+				filtered = append(filtered, d)
+			}
+		}
+		downloads = filtered
 	}
 
 	return &Result{

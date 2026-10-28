@@ -62,3 +62,65 @@ func TestQualityRegex(t *testing.T) {
 		})
 	}
 }
+
+func TestParseResult_OmitThumbnailWhenVideo(t *testing.T) {
+	htmlData := `
+	<div>
+		<input id="TwitterId" value="123456" />
+		<div class="tw-middle">
+			<h3>Sample Twitter Video</h3>
+			<p>0:45</p>
+		</div>
+		<div class="thumbnail">
+			<img src="https://pbs.twimg.com/amplify_video_thumb/123/img/thumb.jpg" />
+		</div>
+		<a class="tw-button-dl" href="https://dl.snapcdn.app/get?token=thumb">Render / Download Photo</a>
+		<a class="tw-button-dl" href="https://dl.snapcdn.app/get?token=v1080">Download MP4 (1080p)</a>
+		<a class="tw-button-dl" href="https://dl.snapcdn.app/get?token=v720">Download MP4 (720p)</a>
+	</div>
+	`
+
+	res := twitter.ParseResult([]byte(htmlData))
+	if res.Type != "video" {
+		t.Fatalf("expected res.Type to be 'video', got %q", res.Type)
+	}
+
+	if res.Thumbnail == nil || *res.Thumbnail != "https://pbs.twimg.com/amplify_video_thumb/123/img/thumb.jpg" {
+		t.Errorf("expected thumbnail to be preserved, got %v", res.Thumbnail)
+	}
+
+	for _, d := range res.Downloads {
+		if d.Type == "image" {
+			t.Errorf("expected no image download item when video is present, found %+v", d)
+		}
+	}
+
+	if len(res.Downloads) != 2 {
+		t.Errorf("expected 2 video downloads, got %d", len(res.Downloads))
+	}
+}
+
+func TestParseResult_PreservePhotosWhenNoVideo(t *testing.T) {
+	htmlData := `
+	<div>
+		<input id="TwitterId" value="789012" />
+		<div class="tw-middle">
+			<h3>Sample Twitter Photo</h3>
+		</div>
+		<a class="tw-button-dl" href="https://dl.snapcdn.app/get?token=photo1">Download Photo</a>
+	</div>
+	`
+
+	res := twitter.ParseResult([]byte(htmlData))
+	if res.Type != "photo" {
+		t.Fatalf("expected res.Type to be 'photo', got %q", res.Type)
+	}
+
+	if len(res.Downloads) != 1 {
+		t.Fatalf("expected 1 photo download, got %d", len(res.Downloads))
+	}
+
+	if res.Downloads[0].Type != "image" {
+		t.Errorf("expected download type to be 'image', got %q", res.Downloads[0].Type)
+	}
+}
