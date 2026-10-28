@@ -23,15 +23,8 @@ func Load() Config {
 		Host: getEnv("HOST", "0.0.0.0"),
 	}
 
-	if c := os.Getenv("INSTAGRAM_COOKIES"); c != "" {
-		instagram.SetCookies(c)
-	}
-	if c := os.Getenv("FACEBOOK_COOKIES"); c != "" {
-		facebook.SetCookies(c)
-	}
-	if c := os.Getenv("PIXIV_COOKIES"); c != "" {
-		pixiv.SetCookies(c)
-	}
+	// Always load the latest cookies from .env into memory
+	_, _ = ReloadCookies()
 
 	return cfg
 }
