@@ -46,7 +46,7 @@ func NewWithCache(c *cache.Cache) *Handlers {
 		registry: engine.DefaultRegistry(),
 		freshTTL: 24 * time.Hour, // Serve directly for 24h
 		staleTTL: 72 * time.Hour, // Serve as stale fallback for 3 days
-		negTTL:   3 * time.Minute,
+		negTTL:   10 * time.Second, // Transient error negative cache
 	}
 }
 

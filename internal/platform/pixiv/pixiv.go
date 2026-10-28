@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pavelc4/astra/internal/errors"
@@ -19,7 +20,7 @@ import (
 // pixivHTTPClient short-circuits redirects so we see the literal CDN/API status
 // (a 403 referer rejection comes BEFORE any redirect) and can report it.
 var pixivHTTPClient = &http.Client{
-	Timeout:   15 * time.Second,
+	Timeout:   30 * time.Second,
 	Transport: httpclient.Client.Transport,
 	CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		return http.ErrUseLastResponse
@@ -412,40 +413,98 @@ func FetchUserDetail(ctx context.Context, targetURL string) (*UserDetail, error)
 	}, nil
 }
 
-// get performs an authenticated ajax GET and returns the raw response body.
+// get performs an authenticated ajax GET and returns the raw response body with retries.
 func get(ctx context.Context, path string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+path, nil)
-	if err != nil {
-		return nil, errors.NewUpstream(err.Error())
-	}
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(time.Duration(attempt*500) * time.Millisecond):
+			}
+		}
 
-	req.Header.Set("Referer", referer)
-	req.Header.Set("Accept", "application/json")
-	for k, v := range httpclient.DefaultHeaders {
-		req.Header[k] = v
-	}
-	if c := GetCookies(); c != "" {
-		req.Header.Set("Cookie", c)
-	}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+path, nil)
+		if err != nil {
+			return nil, errors.NewUpstream(err.Error())
+		}
 
-	resp, err := pixivHTTPClient.Do(req)
-	if err != nil {
-		return nil, errors.NewUpstream(err.Error())
-	}
-	defer resp.Body.Close()
+		req.Header.Set("Referer", referer)
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+		req.Header.Set("Sec-Ch-Ua", `"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"`)
+		req.Header.Set("Sec-Ch-Ua-Mobile", "?0")
+		req.Header.Set("Sec-Ch-Ua-Platform", `"Windows"`)
+		req.Header.Set("Sec-Fetch-Dest", "empty")
+		req.Header.Set("Sec-Fetch-Mode", "cors")
+		req.Header.Set("Sec-Fetch-Site", "same-origin")
+		for k, v := range httpclient.DefaultHeaders {
+			req.Header[k] = v
+		}
+		cookies := GetCookies()
+		if cookies != "" {
+			req.Header.Set("Cookie", cookies)
+		}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, errors.NewUpstream(err.Error())
-	}
+		resp, err := pixivHTTPClient.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
 
-	if resp.StatusCode == 403 || resp.StatusCode == 400 {
-		return nil, errors.NewUpstream(fmt.Sprintf("pixiv %d: login or invalid/expired cookie required", resp.StatusCode))
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		if resp.StatusCode == 403 || resp.StatusCode == 400 {
+			if cookies != "" {
+				// Cookie might be expired or blocked by Cloudflare cf_clearance.
+				// Fall back to unauthenticated request for public artworks.
+				reqNoCookie, errNoCookie := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+path, nil)
+				if errNoCookie == nil {
+					reqNoCookie.Header.Set("Referer", referer)
+					reqNoCookie.Header.Set("Accept", "application/json")
+					for k, v := range httpclient.DefaultHeaders {
+						reqNoCookie.Header[k] = v
+					}
+					if respNoCookie, errNoCookie := pixivHTTPClient.Do(reqNoCookie); errNoCookie == nil {
+						defer respNoCookie.Body.Close()
+						if respNoCookie.StatusCode == http.StatusOK {
+							if bodyNoCookie, errNoCookie := io.ReadAll(respNoCookie.Body); errNoCookie == nil {
+								return bodyNoCookie, nil
+							}
+						}
+					}
+				}
+			}
+			return nil, errors.NewUpstream(fmt.Sprintf("pixiv %d: login or invalid/expired cookie required", resp.StatusCode))
+		}
+		if resp.StatusCode != http.StatusOK {
+			lastErr = fmt.Errorf("pixiv returned %d", resp.StatusCode)
+			continue
+		}
+		return body, nil
 	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, errors.NewUpstream(fmt.Sprintf("pixiv returned %d", resp.StatusCode))
+	if lastErr != nil {
+		return nil, errors.NewUpstream(lastErr.Error())
 	}
-	return body, nil
+	return nil, errors.NewUpstream("pixiv request failed")
+}
+
+var streamClient = &http.Client{
+	Timeout:   120 * time.Second,
+	Transport: httpclient.Client.Transport,
+}
+
+var streamBufPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, 512*1024)
+		return &b
+	},
 }
 
 // StreamImage proxies an i.pximg.net image to the client, adding the Referer
@@ -462,11 +521,8 @@ func StreamImage(ctx context.Context, imageURL string, out io.Writer) (string, e
 	for k, v := range httpclient.DefaultHeaders {
 		req.Header[k] = v
 	}
-	if c := GetCookies(); c != "" {
-		req.Header.Set("Cookie", c)
-	}
 
-	resp, err := httpclient.Client.Do(req)
+	resp, err := streamClient.Do(req)
 	if err != nil {
 		return "", errors.NewUpstream(err.Error())
 	}
@@ -491,7 +547,10 @@ func StreamImage(ctx context.Context, imageURL string, out io.Writer) (string, e
 		}
 	}
 
-	if _, err := io.Copy(out, resp.Body); err != nil {
+	bufPtr := streamBufPool.Get().(*[]byte)
+	defer streamBufPool.Put(bufPtr)
+
+	if _, err := io.CopyBuffer(out, resp.Body, *bufPtr); err != nil {
 		return "", errors.NewUpstream(err.Error())
 	}
 	return ctype, nil
